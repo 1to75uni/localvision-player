@@ -4,13 +4,20 @@ const CONFIG = {
   store: params.get('store') || 'goobne',
   deviceId: params.get('deviceId') || '',
   apiBase: (params.get('apiBase') || 'https://localvision-cms.pages.dev').replace(/\/$/, ''),
-  refreshMs: Number(params.get('refresh') || 60000),
+  refreshMs: Number(params.get('refresh') || 600000),
   heartbeatMs: Number(params.get('heartbeat') || 30000),
+  cacheMax: Number(params.get('cacheMax') || 20),
+  prefetchAhead: Number(params.get('prefetchAhead') || 2),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
+  restartJitterSec: Number(params.get('restartJitterSec') || 0),
   fit: params.get('fit') || 'cover',
   debug: params.get('debug') === '1',
 }
+
+const CACHE_NAME = 'lv-media-cache-v1.2'
+const META_KEY = 'lv-media-cache-meta-v1.2'
+const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
 
 const state = {
   leftItems: [],
@@ -22,9 +29,14 @@ const state = {
   lastRestartKey: '',
   lastSync: '',
   lastHeartbeat: '',
-  lastCommandAt: '',
   clickCount: 0,
   clickTimer: null,
+  objectUrls: {
+    left: '',
+    right: '',
+  },
+  cacheStatus: '-',
+  isSyncing: false,
 }
 
 const els = {
@@ -34,6 +46,7 @@ const els = {
   debugPanel: document.getElementById('debugPanel'),
   reloadBtn: document.getElementById('reloadBtn'),
   syncBtn: document.getElementById('syncBtn'),
+  clearCacheBtn: document.getElementById('clearCacheBtn'),
   dbgStore: document.getElementById('dbgStore'),
   dbgDevice: document.getElementById('dbgDevice'),
   dbgApi: document.getElementById('dbgApi'),
@@ -41,10 +54,9 @@ const els = {
   dbgRight: document.getElementById('dbgRight'),
   dbgSync: document.getElementById('dbgSync'),
   dbgHeartbeat: document.getElementById('dbgHeartbeat'),
+  dbgCache: document.getElementById('dbgCache'),
   dbgStatus: document.getElementById('dbgStatus'),
 }
-
-const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
 
 function setStatus(message) {
   els.statusPill.textContent = message
@@ -59,6 +71,17 @@ function updateDebug() {
   els.dbgRight.textContent = String(state.rightItems.length)
   els.dbgSync.textContent = state.lastSync || '-'
   els.dbgHeartbeat.textContent = state.lastHeartbeat || '-'
+  els.dbgCache.textContent = state.cacheStatus
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return
+
+  try {
+    await navigator.serviceWorker.register('./sw.js')
+  } catch (error) {
+    console.warn('Service Worker registration failed:', error.message)
+  }
 }
 
 async function fetchJson(url, options = {}) {
@@ -94,17 +117,15 @@ function normalizeItems(items) {
       duration: Number(item.duration || 10),
       url: item.url || '',
       type: item.type || guessType(item.url || item.fileName || ''),
+      cacheUrl: makeCacheUrl(item.url || ''),
     }))
+    .filter((item) => item.url)
 }
 
 function guessType(value) {
   const lower = String(value).toLowerCase()
   if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) return 'video'
   return 'image'
-}
-
-function samePlaylist(a, b) {
-  return JSON.stringify(a.map(lightItem)) === JSON.stringify(b.map(lightItem))
 }
 
 function lightItem(item) {
@@ -117,29 +138,209 @@ function lightItem(item) {
   }
 }
 
-async function syncConfig() {
+function playlistSignature(items) {
+  return JSON.stringify(items.map(lightItem))
+}
+
+function samePlaylist(a, b) {
+  return playlistSignature(a) === playlistSignature(b)
+}
+
+function makeCacheUrl(rawUrl) {
+  if (!rawUrl) return ''
+
   try {
-    setStatus('CMS 데이터 동기화 중...')
+    const url = new URL(rawUrl)
+    if (url.pathname.includes('/api/media')) return rawUrl
+
+    const index = url.pathname.indexOf('/stores/')
+    if (index >= 0) {
+      const key = url.pathname.slice(index + 1)
+      return `${CONFIG.apiBase}/api/media?key=${encodeURIComponent(key)}`
+    }
+
+    return rawUrl
+  } catch {
+    return rawUrl
+  }
+}
+
+function loadMeta() {
+  try {
+    return JSON.parse(localStorage.getItem(META_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveMeta(meta) {
+  localStorage.setItem(META_KEY, JSON.stringify(meta))
+}
+
+function touchMeta(url) {
+  const meta = loadMeta()
+  meta[url] = {
+    lastUsed: Date.now(),
+  }
+  saveMeta(meta)
+}
+
+async function getMediaCache() {
+  return caches.open(CACHE_NAME)
+}
+
+async function getCachedMediaBlobUrl(item) {
+  const requestUrl = item.cacheUrl || item.url
+  const cache = await getMediaCache()
+  let response = await cache.match(requestUrl)
+
+  if (!response) {
+    response = await fetch(requestUrl, { cache: 'reload' })
+
+    if (!response.ok) {
+      throw new Error(`media fetch failed ${response.status}`)
+    }
+
+    await cache.put(requestUrl, response.clone())
+  }
+
+  touchMeta(requestUrl)
+
+  const blob = await response.clone().blob()
+  return URL.createObjectURL(blob)
+}
+
+async function prefetchItem(item) {
+  if (!item?.url) return false
+
+  const requestUrl = item.cacheUrl || item.url
+
+  try {
+    const cache = await getMediaCache()
+    const cached = await cache.match(requestUrl)
+    if (cached) {
+      touchMeta(requestUrl)
+      return true
+    }
+
+    const response = await fetch(requestUrl, { cache: 'reload' })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    await cache.put(requestUrl, response.clone())
+    touchMeta(requestUrl)
+    return true
+  } catch (error) {
+    console.warn('prefetch failed:', requestUrl, error.message)
+    return false
+  }
+}
+
+async function prefetchAround(side, items, index = 0) {
+  if (!items.length) return
+
+  const list = []
+  const max = Math.min(CONFIG.prefetchAhead + 1, items.length)
+
+  for (let i = 0; i < max; i += 1) {
+    list.push(items[(index + i) % items.length])
+  }
+
+  await Promise.allSettled(list.map((item) => prefetchItem(item)))
+  await cleanupMediaCache([...state.leftItems, ...state.rightItems, ...items])
+  updateCacheStatus()
+}
+
+async function preparePlaylist(items) {
+  if (!items.length) return true
+
+  const first = items[0]
+  const ok = await prefetchItem(first)
+  return ok
+}
+
+async function cleanupMediaCache(activeItems = []) {
+  const cache = await getMediaCache()
+  const keys = await cache.keys()
+  const meta = loadMeta()
+  const activeUrls = new Set(
+    activeItems
+      .map((item) => item.cacheUrl || item.url)
+      .filter(Boolean)
+  )
+
+  for (const request of keys) {
+    if (!activeUrls.has(request.url) && keys.length > CONFIG.cacheMax) {
+      await cache.delete(request)
+      delete meta[request.url]
+    }
+  }
+
+  const nextKeys = await cache.keys()
+  if (nextKeys.length > CONFIG.cacheMax) {
+    const sorted = nextKeys
+      .map((request) => ({
+        request,
+        lastUsed: meta[request.url]?.lastUsed || 0,
+      }))
+      .sort((a, b) => a.lastUsed - b.lastUsed)
+
+    const removeCount = nextKeys.length - CONFIG.cacheMax
+    for (const item of sorted.slice(0, removeCount)) {
+      await cache.delete(item.request)
+      delete meta[item.request.url]
+    }
+  }
+
+  saveMeta(meta)
+}
+
+async function updateCacheStatus() {
+  try {
+    const cache = await getMediaCache()
+    const keys = await cache.keys()
+    state.cacheStatus = `${keys.length}/${CONFIG.cacheMax}`
+    updateDebug()
+  } catch {
+    state.cacheStatus = '-'
+  }
+}
+
+async function clearMediaCache() {
+  await caches.delete(CACHE_NAME)
+  localStorage.removeItem(META_KEY)
+  state.cacheStatus = 'cleared'
+  updateDebug()
+  setStatus('미디어 캐시를 삭제했습니다')
+}
+
+async function syncConfig() {
+  if (state.isSyncing) return
+  state.isSyncing = true
+
+  try {
+    setStatus('CMS 재생목록 확인중...')
     const data = await fetchPlayerConfig()
 
     const nextLeft = normalizeItems(data.playlists?.left)
     const nextRight = normalizeItems(data.playlists?.right)
 
+    handleRemoteCommand(data.devices || [])
+
     const leftChanged = !samePlaylist(state.leftItems, nextLeft)
     const rightChanged = !samePlaylist(state.rightItems, nextRight)
 
-    state.leftItems = nextLeft
-    state.rightItems = nextRight
-    state.lastSync = new Date().toLocaleString('ko-KR')
-
-    handleRemoteCommand(data.devices || [])
-
     if (leftChanged) {
+      setStatus('좌측 새 콘텐츠 준비중...')
+      await preparePlaylist(nextLeft)
+      state.leftItems = nextLeft
       state.leftIndex = 0
       startPlayback('left')
     }
 
     if (rightChanged) {
+      setStatus('우측 새 콘텐츠 준비중...')
+      await preparePlaylist(nextRight)
+      state.rightItems = nextRight
       state.rightIndex = 0
       startPlayback('right')
     }
@@ -147,14 +348,21 @@ async function syncConfig() {
     if (!leftChanged && !state.leftTimer) startPlayback('left')
     if (!rightChanged && !state.rightTimer) startPlayback('right')
 
-    setStatus('CMS 데이터 동기화 완료')
+    await prefetchAround('left', state.leftItems, state.leftIndex)
+    await prefetchAround('right', state.rightItems, state.rightIndex)
+
+    state.lastSync = new Date().toLocaleString('ko-KR')
+    setStatus('CMS 재생목록 동기화 완료')
     updateDebug()
   } catch (error) {
     console.error(error)
-    setStatus(`동기화 실패: ${error.message}`)
+    setStatus(`CMS 확인 실패, 기존 재생 유지: ${error.message}`)
     updateDebug()
+  } finally {
+    state.isSyncing = false
   }
 }
+
 
 function handleRemoteCommand(devices) {
   if (!CONFIG.deviceId) return
@@ -247,6 +455,13 @@ function emptyMarkup(side) {
   `
 }
 
+function releaseObjectUrl(side) {
+  if (state.objectUrls[side]) {
+    URL.revokeObjectURL(state.objectUrls[side])
+    state.objectUrls[side] = ''
+  }
+}
+
 function startPlayback(side) {
   clearSideTimer(side)
 
@@ -254,6 +469,7 @@ function startPlayback(side) {
   const zone = getZone(side)
 
   if (!items.length) {
+    releaseObjectUrl(side)
     zone.innerHTML = emptyMarkup(side)
     return
   }
@@ -263,7 +479,7 @@ function startPlayback(side) {
   playItem(side, items[currentIndex])
 }
 
-function playItem(side, item) {
+async function playItem(side, item) {
   const zone = getZone(side)
 
   if (!item?.url) {
@@ -272,10 +488,22 @@ function playItem(side, item) {
     return
   }
 
-  if (item.type === 'video') {
-    playVideo(side, item)
-  } else {
-    playImage(side, item)
+  try {
+    const objectUrl = await getCachedMediaBlobUrl(item)
+    releaseObjectUrl(side)
+    state.objectUrls[side] = objectUrl
+
+    if (item.type === 'video') {
+      playVideo(side, item, objectUrl)
+    } else {
+      playImage(side, item, objectUrl)
+    }
+
+    const currentIndex = getIndex(side)
+    prefetchAround(side, getItems(side), currentIndex + 1)
+  } catch (error) {
+    console.warn('play item failed:', item.url, error.message)
+    playDirectFallback(side, item)
   }
 }
 
@@ -283,11 +511,11 @@ function applyFit(element) {
   element.className = `media fade-in ${CONFIG.fit === 'contain' ? 'contain' : ''}`
 }
 
-function playImage(side, item) {
+function playImage(side, item, src) {
   const zone = getZone(side)
   const img = document.createElement('img')
   applyFit(img)
-  img.src = item.url
+  img.src = src
   img.alt = item.title || 'LocalVision image'
 
   img.onload = () => {
@@ -296,18 +524,17 @@ function playImage(side, item) {
   }
 
   img.onerror = () => {
-    console.warn('Image load failed:', item.url)
     zone.innerHTML = emptyMarkup(side)
     scheduleNext(side, 5)
   }
 }
 
-function playVideo(side, item) {
+function playVideo(side, item, src) {
   const zone = getZone(side)
   const video = document.createElement('video')
 
   applyFit(video)
-  video.src = item.url
+  video.src = src
   video.autoplay = true
   video.muted = true
   video.playsInline = true
@@ -323,7 +550,6 @@ function playVideo(side, item) {
   }
 
   video.onerror = () => {
-    console.warn('Video load failed:', item.url)
     zone.innerHTML = emptyMarkup(side)
     scheduleNext(side, 5)
   }
@@ -336,6 +562,14 @@ function playVideo(side, item) {
 
   const safetyMs = Math.max(60, Number(item.duration || 0) || 1800) * 1000
   setSideTimer(side, () => next(side), safetyMs)
+}
+
+function playDirectFallback(side, item) {
+  if (item.type === 'video') {
+    playVideo(side, item, item.url)
+  } else {
+    playImage(side, item, item.url)
+  }
 }
 
 function scheduleNext(side, durationSeconds) {
@@ -355,6 +589,10 @@ function next(side) {
 function setupDailyRestart() {
   if (!CONFIG.restart) return
 
+  const jitterMs = CONFIG.restartJitterSec > 0
+    ? Math.floor(Math.random() * CONFIG.restartJitterSec * 1000)
+    : 0
+
   setInterval(() => {
     const now = new Date()
     const hh = String(now.getHours()).padStart(2, '0')
@@ -363,9 +601,12 @@ function setupDailyRestart() {
 
     if (`${hh}:${mm}` === CONFIG.restart && state.lastRestartKey !== key) {
       state.lastRestartKey = key
-      if (CONFIG.restartMode === 'reload') {
-        location.reload()
-      }
+
+      setTimeout(() => {
+        if (CONFIG.restartMode === 'reload') {
+          location.reload()
+        }
+      }, jitterMs)
     }
   }, 15000)
 }
@@ -396,6 +637,10 @@ function setupDebugToggle() {
     syncConfig()
     sendHeartbeat()
   })
+
+  els.clearCacheBtn.addEventListener('click', () => {
+    clearMediaCache()
+  })
 }
 
 window.addEventListener('error', (event) => {
@@ -406,11 +651,17 @@ window.addEventListener('unhandledrejection', (event) => {
   setStatus(`오류: ${event.reason?.message || event.reason}`)
 })
 
-setupDebugToggle()
-setupDailyRestart()
-updateDebug()
-syncConfig()
-sendHeartbeat()
+async function boot() {
+  await registerServiceWorker()
+  setupDebugToggle()
+  setupDailyRestart()
+  updateDebug()
+  await updateCacheStatus()
+  await syncConfig()
+  await sendHeartbeat()
 
-setInterval(syncConfig, CONFIG.refreshMs)
-setInterval(sendHeartbeat, CONFIG.heartbeatMs)
+  setInterval(syncConfig, CONFIG.refreshMs)
+  setInterval(sendHeartbeat, CONFIG.heartbeatMs)
+}
+
+boot()

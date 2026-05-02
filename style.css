@@ -49,10 +49,6 @@ body {
   object-fit: contain;
 }
 
-.media.hidden {
-  opacity: 0;
-}
-
 .empty {
   width: 100%;
   height: 100%;
@@ -100,7 +96,7 @@ body {
   position: fixed;
   right: 20px;
   top: 20px;
-  width: 390px;
+  width: 410px;
   max-width: calc(100vw - 40px);
   background: rgba(15, 23, 42, 0.96);
   color: #fff;
@@ -152,7 +148,7 @@ body {
 
 .debug-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 10px;
 }
 
@@ -165,6 +161,10 @@ body {
   color: #fff;
 }
 
+.debug-actions button:nth-child(2) {
+  background: #475569;
+}
+
 .debug-actions button:last-child {
   background: #111827;
   border: 1px solid rgba(255,255,255,0.15);
@@ -174,16 +174,7 @@ body {
   animation: fadeIn 0.35s ease both;
 }
 
-.fade-out {
-  animation: fadeOut 0.25s ease both;
-}
-
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-@keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
 }
