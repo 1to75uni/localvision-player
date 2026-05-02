@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LocalVision Player</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main id="screen">
+    <section class="zone left-zone" id="leftZone">
+      <div class="empty">
+        <strong>LocalVision</strong>
+        <span>좌측 콘텐츠를 불러오는 중입니다</span>
+      </div>
+    </section>
+
+    <section class="zone right-zone" id="rightZone">
+      <div class="empty small">
+        <strong>LV</strong>
+        <span>공통 콘텐츠 로딩중</span>
+      </div>
+    </section>
+
+    <div id="statusPill">LocalVision Player 시작중...</div>
+
+    <aside id="debugPanel" hidden>
+      <div class="debug-head">
+        <h2>LocalVision Player</h2>
+        <span>v1.1</span>
+      </div>
+
+      <dl>
+        <dt>Store</dt><dd id="dbgStore">-</dd>
+        <dt>Device ID</dt><dd id="dbgDevice">-</dd>
+        <dt>API</dt><dd id="dbgApi">-</dd>
+        <dt>Left</dt><dd id="dbgLeft">0</dd>
+        <dt>Right</dt><dd id="dbgRight">0</dd>
+        <dt>Last Sync</dt><dd id="dbgSync">-</dd>
+        <dt>Last Heartbeat</dt><dd id="dbgHeartbeat">-</dd>
+        <dt>Status</dt><dd id="dbgStatus">-</dd>
+      </dl>
+
+      <div class="debug-actions">
+        <button id="syncBtn">Sync Now</button>
+        <button id="reloadBtn">Reload</button>
+      </div>
+    </aside>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

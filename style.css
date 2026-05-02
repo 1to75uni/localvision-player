@@ -1,0 +1,189 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#screen {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 70fr 30fr;
+  background: #000;
+  position: relative;
+}
+
+.zone {
+  position: relative;
+  overflow: hidden;
+  background: #030712;
+}
+
+.left-zone {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.right-zone {
+  background: #07101f;
+}
+
+.media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  display: block;
+}
+
+.media.contain {
+  object-fit: contain;
+}
+
+.media.hidden {
+  opacity: 0;
+}
+
+.empty {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: #fff;
+  gap: 12px;
+  padding: 40px;
+}
+
+.empty strong {
+  font-size: 58px;
+  letter-spacing: -0.05em;
+}
+
+.empty span {
+  font-size: 24px;
+  color: rgba(255,255,255,0.72);
+}
+
+.empty.small strong {
+  font-size: 34px;
+}
+
+.empty.small span {
+  font-size: 18px;
+}
+
+#statusPill {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 20;
+  color: rgba(255,255,255,0.82);
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.14);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  backdrop-filter: blur(10px);
+}
+
+#debugPanel {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  width: 390px;
+  max-width: calc(100vw - 40px);
+  background: rgba(15, 23, 42, 0.96);
+  color: #fff;
+  z-index: 50;
+  border-radius: 22px;
+  padding: 22px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.48);
+  border: 1px solid rgba(255,255,255,0.14);
+}
+
+.debug-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.debug-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.debug-head span {
+  background: #0352fb;
+  color: #fff;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+#debugPanel dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+#debugPanel dt {
+  color: #93c5fd;
+  font-weight: 800;
+}
+
+#debugPanel dd {
+  margin: 0;
+  word-break: break-all;
+  color: #e5e7eb;
+}
+
+.debug-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.debug-actions button {
+  border: 0;
+  border-radius: 14px;
+  padding: 13px;
+  font-weight: 900;
+  background: #0352fb;
+  color: #fff;
+}
+
+.debug-actions button:last-child {
+  background: #111827;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease both;
+}
+
+.fade-out {
+  animation: fadeOut 0.25s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
