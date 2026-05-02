@@ -23,6 +23,7 @@ const MEDIA_CACHE = 'lv-media-bundle-v1.4'
 const META_KEY = 'lv-media-bundle-meta-v1.4'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1.4-${CONFIG.store}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
+let statusHideTimer = null
 
 const state = {
   leftItems: [],
@@ -65,9 +66,19 @@ const els = {
   dbgStatus: document.getElementById('dbgStatus'),
 }
 
+function showStatusTemporarily(ms = 5000) {
+  if (!els.statusPill) return
+  els.statusPill.classList.remove('is-hidden')
+  if (statusHideTimer) clearTimeout(statusHideTimer)
+  statusHideTimer = setTimeout(() => {
+    els.statusPill.classList.add('is-hidden')
+  }, ms)
+}
+
 function setStatus(message) {
-  els.statusPill.textContent = message
-  els.dbgStatus.textContent = message
+  if (els.statusPill) els.statusPill.textContent = message
+  if (els.dbgStatus) els.dbgStatus.textContent = message
+  showStatusTemporarily(5000)
 }
 
 function updateDebug() {

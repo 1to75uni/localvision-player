@@ -81,6 +81,16 @@ html, body {
   border-radius: 999px;
   font-size: 13px;
   backdrop-filter: blur(10px);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0.35s ease;
+}
+
+#statusPill.is-hidden {
+  opacity: 0;
+  transform: translateY(12px);
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #debugPanel {
