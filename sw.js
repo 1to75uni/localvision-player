@@ -1,10 +1,5 @@
-const APP_CACHE = 'lv-player-app-v1.2'
-const APP_ASSETS = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-]
+const APP_CACHE = 'lv-player-app-v1.4'
+const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -28,17 +23,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
-
   if (event.request.method !== 'GET') return
-
-  if (url.pathname.includes('/api/')) {
-    return
-  }
+  if (url.pathname.includes('/api/')) return
 
   if (url.origin === location.origin) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
-        const network = fetch(event.request)
+        const network = fetch(event.request, { cache: 'no-store' })
           .then((response) => {
             if (response.ok) {
               const clone = response.clone()
@@ -47,7 +38,6 @@ self.addEventListener('fetch', (event) => {
             return response
           })
           .catch(() => cached)
-
         return cached || network
       })
     )

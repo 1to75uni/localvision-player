@@ -1,60 +1,35 @@
-# LocalVision Player v1.2 Cache Stable
+# LocalVision Player v1.4 Offline Bundle
 
-LocalVision CMS v1.8과 연결되는 안정화 Player입니다.
+네트워크가 불안정한 매장용 안정화 Player입니다.
 
-## 핵심 재생 로직
+## 핵심 로직
 
 부팅
 ↓
+이전에 저장된 playlist가 있으면 즉시 캐시 재생
+↓
 CMS API 호출
 ↓
-playlist 가져오기
+left/right playlist 가져오기
 ↓
-현재 콘텐츠 재생
+이미지/영상 전체 다운로드
 ↓
-다음 콘텐츠 prefetch
+전체 다운로드 성공 시에만 새 playlist로 교체
 ↓
-10분마다 CMS API 재확인
+1시간마다 CMS API 재확인
 ↓
-playlist가 바뀌었으면 새 파일 prefetch
-↓
-새 파일 준비 완료 후 재생목록 교체
-↓
-오래된 캐시 정리
+새 playlist 감지 시 다시 전체 다운로드 후 교체
 
-## 기본 테스트 URL
+## 기본 운영 URL
 
-https://localvision-player.pages.dev/?store=goobne&apiBase=https://localvision-cms.pages.dev&debug=1
+https://localvision-player.pages.dev/?store=goobne&deviceId=dv_001&apiBase=https://localvision-cms.pages.dev&refresh=3600000&bundleMode=cache&cacheAll=1&videoMode=cache&cacheMax=60&activateWhenCached=1&restart=09:30&restartMode=reload
 
-## TV 운영 URL 예시
+## 옵션
 
-https://localvision-player.pages.dev/?store=goobne&deviceId=dv_001&apiBase=https://localvision-cms.pages.dev&restart=09:30&restartMode=reload&cacheMax=20
-
-## URL 옵션
-
-- store=goobne
-- apiBase=https://localvision-cms.pages.dev
-- deviceId=dv_001
-- refresh=600000
-- heartbeat=30000
-- cacheMax=20
-- prefetchAhead=2
-- restart=09:30
-- restartMode=reload
-- restartJitterSec=0
-- fit=cover 또는 contain
-- debug=1
-
-## v1.2 기능
-
-- CMS API 10분마다 재확인
-- 이미지/영상 CacheStorage 저장
-- 현재 콘텐츠 우선 재생
-- 다음 콘텐츠 1~2개 prefetch
-- playlist 변경 시 새 파일 준비 후 교체
-- 오래된 캐시 정리
-- 네트워크 오류 시 기존 재생목록 유지
-- Service Worker로 앱 기본 파일 캐시
-- 영상은 영상 길이대로 재생
-- 이미지는 CMS 재생시간 기준 재생
-- CMS 새로고침 명령 수신 시 reload
+- refresh=3600000 : 1시간마다 CMS 재생목록 확인
+- bundleMode=cache : 이미지/영상 전체 캐시 후 재생
+- cacheAll=1 : 현재 playlist의 모든 미디어 다운로드
+- videoMode=cache : 영상도 캐시 Blob URL로 재생
+- cacheMax=60 : 캐시 보관 개수
+- activateWhenCached=1 : 새 묶음 전체 다운로드 성공 후 교체
+- heartbeat=30000 : 30초마다 단말기 온라인 갱신

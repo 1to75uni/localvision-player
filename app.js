@@ -4,19 +4,23 @@ const CONFIG = {
   store: params.get('store') || 'goobne',
   deviceId: params.get('deviceId') || '',
   apiBase: (params.get('apiBase') || 'https://localvision-cms.pages.dev').replace(/\/$/, ''),
-  refreshMs: Number(params.get('refresh') || 600000),
+  refreshMs: Number(params.get('refresh') || 3600000),
   heartbeatMs: Number(params.get('heartbeat') || 30000),
-  cacheMax: Number(params.get('cacheMax') || 20),
-  prefetchAhead: Number(params.get('prefetchAhead') || 2),
+  cacheMax: Number(params.get('cacheMax') || 60),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
   restartJitterSec: Number(params.get('restartJitterSec') || 0),
   fit: params.get('fit') || 'cover',
+  videoMode: params.get('videoMode') || 'cache',
+  bundleMode: params.get('bundleMode') || 'cache',
+  cacheAll: params.get('cacheAll') !== '0',
+  activateWhenCached: params.get('activateWhenCached') !== '0',
   debug: params.get('debug') === '1',
 }
 
-const CACHE_NAME = 'lv-media-cache-v1.2'
-const META_KEY = 'lv-media-cache-meta-v1.2'
+const MEDIA_CACHE = 'lv-media-bundle-v1.4'
+const META_KEY = 'lv-media-bundle-meta-v1.4'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1.4-${CONFIG.store}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
 
 const state = {
@@ -26,17 +30,18 @@ const state = {
   rightIndex: 0,
   leftTimer: null,
   rightTimer: null,
-  lastRestartKey: '',
+  leftWatchdog: null,
+  rightWatchdog: null,
+  objectUrls: { left: '', right: '' },
+  playToken: { left: 0, right: 0 },
   lastSync: '',
   lastHeartbeat: '',
+  bundleStatus: '-',
+  cacheStatus: '-',
+  lastRestartKey: '',
+  isSyncing: false,
   clickCount: 0,
   clickTimer: null,
-  objectUrls: {
-    left: '',
-    right: '',
-  },
-  cacheStatus: '-',
-  isSyncing: false,
 }
 
 const els = {
@@ -54,6 +59,7 @@ const els = {
   dbgRight: document.getElementById('dbgRight'),
   dbgSync: document.getElementById('dbgSync'),
   dbgHeartbeat: document.getElementById('dbgHeartbeat'),
+  dbgBundle: document.getElementById('dbgBundle'),
   dbgCache: document.getElementById('dbgCache'),
   dbgStatus: document.getElementById('dbgStatus'),
 }
@@ -71,45 +77,38 @@ function updateDebug() {
   els.dbgRight.textContent = String(state.rightItems.length)
   els.dbgSync.textContent = state.lastSync || '-'
   els.dbgHeartbeat.textContent = state.lastHeartbeat || '-'
+  els.dbgBundle.textContent = state.bundleStatus
   els.dbgCache.textContent = state.cacheStatus
 }
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return
-
-  try {
-    await navigator.serviceWorker.register('./sw.js')
-  } catch (error) {
-    console.warn('Service Worker registration failed:', error.message)
-  }
+  try { await navigator.serviceWorker.register('./sw.js') } catch (error) {}
 }
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     cache: 'no-store',
     ...options,
-    headers: {
-      ...(options.headers || {}),
-    },
+    headers: { ...(options.headers || {}) },
   })
-
   const data = await response.json().catch(() => ({}))
-
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.error || `HTTP ${response.status}`)
-  }
-
+  if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`)
   return data
 }
 
 async function fetchPlayerConfig() {
-  const url = `${CONFIG.apiBase}/api/player-config?store=${encodeURIComponent(CONFIG.store)}&t=${Date.now()}`
-  return fetchJson(url)
+  return fetchJson(`${CONFIG.apiBase}/api/player-config?store=${encodeURIComponent(CONFIG.store)}&t=${Date.now()}`)
+}
+
+function guessType(value) {
+  const lower = String(value || '').toLowerCase()
+  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.includes('.mp4?')) return 'video'
+  return 'image'
 }
 
 function normalizeItems(items) {
   if (!Array.isArray(items)) return []
-
   return items
     .filter((item) => item && item.status === '사용중')
     .map((item) => ({
@@ -117,181 +116,168 @@ function normalizeItems(items) {
       duration: Number(item.duration || 10),
       url: item.url || '',
       type: item.type || guessType(item.url || item.fileName || ''),
-      cacheUrl: makeCacheUrl(item.url || ''),
+      cacheKey: item.url || '',
     }))
     .filter((item) => item.url)
 }
 
-function guessType(value) {
-  const lower = String(value).toLowerCase()
-  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov')) return 'video'
-  return 'image'
-}
-
-function lightItem(item) {
-  return {
+function lightItems(items) {
+  return items.map((item) => ({
     id: item.id,
     url: item.url,
+    type: item.type,
     duration: item.duration,
     status: item.status,
     sortOrder: item.sortOrder,
-  }
+  }))
 }
 
 function playlistSignature(items) {
-  return JSON.stringify(items.map(lightItem))
+  return JSON.stringify(lightItems(items))
 }
 
-function samePlaylist(a, b) {
-  return playlistSignature(a) === playlistSignature(b)
+function bundleSignature(left, right) {
+  return JSON.stringify({
+    left: lightItems(left),
+    right: lightItems(right),
+  })
 }
 
-function makeCacheUrl(rawUrl) {
-  if (!rawUrl) return ''
-
+function loadSavedBundle() {
   try {
-    const url = new URL(rawUrl)
-    if (url.pathname.includes('/api/media')) return rawUrl
+    const saved = JSON.parse(localStorage.getItem(PLAYLIST_KEY) || 'null')
+    if (!saved) return false
+    if (!Array.isArray(saved.left) || !Array.isArray(saved.right)) return false
 
-    const index = url.pathname.indexOf('/stores/')
-    if (index >= 0) {
-      const key = url.pathname.slice(index + 1)
-      return `${CONFIG.apiBase}/api/media?key=${encodeURIComponent(key)}`
-    }
-
-    return rawUrl
+    state.leftItems = saved.left
+    state.rightItems = saved.right
+    state.leftIndex = Number(saved.leftIndex || 0)
+    state.rightIndex = Number(saved.rightIndex || 0)
+    state.bundleStatus = `saved ${saved.savedAt || ''}`
+    updateDebug()
+    return state.leftItems.length > 0 || state.rightItems.length > 0
   } catch {
-    return rawUrl
+    return false
   }
+}
+
+function saveBundle(left, right) {
+  localStorage.setItem(PLAYLIST_KEY, JSON.stringify({
+    left,
+    right,
+    sig: bundleSignature(left, right),
+    savedAt: new Date().toISOString(),
+  }))
 }
 
 function loadMeta() {
-  try {
-    return JSON.parse(localStorage.getItem(META_KEY) || '{}')
-  } catch {
-    return {}
-  }
+  try { return JSON.parse(localStorage.getItem(META_KEY) || '{}') } catch { return {} }
 }
 
 function saveMeta(meta) {
-  localStorage.setItem(META_KEY, JSON.stringify(meta))
+  localStorage.setItem(META_KEY, JSON.stringify(meta || {}))
 }
 
-function touchMeta(url) {
+function touchMeta(url, patch = {}) {
   const meta = loadMeta()
   meta[url] = {
+    ...(meta[url] || {}),
+    ...patch,
     lastUsed: Date.now(),
   }
   saveMeta(meta)
 }
 
 async function getMediaCache() {
-  return caches.open(CACHE_NAME)
+  return caches.open(MEDIA_CACHE)
 }
 
-async function getCachedMediaBlobUrl(item) {
-  const requestUrl = item.cacheUrl || item.url
+async function isCached(url) {
   const cache = await getMediaCache()
-  let response = await cache.match(requestUrl)
-
-  if (!response) {
-    response = await fetch(requestUrl, { cache: 'reload' })
-
-    if (!response.ok) {
-      throw new Error(`media fetch failed ${response.status}`)
-    }
-
-    await cache.put(requestUrl, response.clone())
-  }
-
-  touchMeta(requestUrl)
-
-  const blob = await response.clone().blob()
-  return URL.createObjectURL(blob)
+  return !!(await cache.match(url))
 }
 
-async function prefetchItem(item) {
+async function ensureCached(item, index, total) {
   if (!item?.url) return false
 
-  const requestUrl = item.cacheUrl || item.url
-
-  try {
-    const cache = await getMediaCache()
-    const cached = await cache.match(requestUrl)
-    if (cached) {
-      touchMeta(requestUrl)
-      return true
-    }
-
-    const response = await fetch(requestUrl, { cache: 'reload' })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-    await cache.put(requestUrl, response.clone())
-    touchMeta(requestUrl)
+  const cache = await getMediaCache()
+  const hit = await cache.match(item.url)
+  if (hit) {
+    touchMeta(item.url, { type: item.type, side: item.side })
     return true
-  } catch (error) {
-    console.warn('prefetch failed:', requestUrl, error.message)
-    return false
-  }
-}
-
-async function prefetchAround(side, items, index = 0) {
-  if (!items.length) return
-
-  const list = []
-  const max = Math.min(CONFIG.prefetchAhead + 1, items.length)
-
-  for (let i = 0; i < max; i += 1) {
-    list.push(items[(index + i) % items.length])
   }
 
-  await Promise.allSettled(list.map((item) => prefetchItem(item)))
-  await cleanupMediaCache([...state.leftItems, ...state.rightItems, ...items])
-  updateCacheStatus()
+  state.bundleStatus = `다운로드 ${index}/${total}`
+  setStatus(`미디어 다운로드중 ${index}/${total}`)
+  updateDebug()
+
+  const response = await fetch(item.url, { cache: 'no-store' })
+  if (!response.ok) throw new Error(`media ${response.status}`)
+  await cache.put(item.url, response.clone())
+  touchMeta(item.url, { type: item.type, side: item.side })
+  return true
 }
 
-async function preparePlaylist(items) {
-  if (!items.length) return true
+async function ensureBundleCached(left, right) {
+  const bundle = [
+    ...left.map((item) => ({ ...item, side: 'left' })),
+    ...right.map((item) => ({ ...item, side: 'right' })),
+  ].filter((item) => item.url)
 
-  const first = items[0]
-  const ok = await prefetchItem(first)
-  return ok
+  const unique = []
+  const seen = new Set()
+  for (const item of bundle) {
+    if (!seen.has(item.url)) {
+      seen.add(item.url)
+      unique.push(item)
+    }
+  }
+
+  if (!unique.length) return true
+
+  for (let i = 0; i < unique.length; i += 1) {
+    await ensureCached(unique[i], i + 1, unique.length)
+  }
+
+  await pruneCache(unique.map((item) => item.url))
+  state.bundleStatus = `완료 ${unique.length}개`
+  updateDebug()
+  return true
 }
 
-async function cleanupMediaCache(activeItems = []) {
+async function pruneCache(activeUrls = []) {
   const cache = await getMediaCache()
   const keys = await cache.keys()
   const meta = loadMeta()
-  const activeUrls = new Set(
-    activeItems
-      .map((item) => item.cacheUrl || item.url)
-      .filter(Boolean)
-  )
+  const keep = new Set(activeUrls)
 
-  for (const request of keys) {
-    if (!activeUrls.has(request.url) && keys.length > CONFIG.cacheMax) {
-      await cache.delete(request)
-      delete meta[request.url]
-    }
+  if (keys.length <= CONFIG.cacheMax) {
+    state.cacheStatus = `${keys.length}/${CONFIG.cacheMax}`
+    updateDebug()
+    return
   }
 
-  const nextKeys = await cache.keys()
-  if (nextKeys.length > CONFIG.cacheMax) {
-    const sorted = nextKeys
-      .map((request) => ({
-        request,
-        lastUsed: meta[request.url]?.lastUsed || 0,
-      }))
-      .sort((a, b) => a.lastUsed - b.lastUsed)
+  const removable = keys
+    .map((request) => ({
+      request,
+      url: request.url,
+      keep: keep.has(request.url),
+      lastUsed: meta[request.url]?.lastUsed || 0,
+    }))
+    .filter((entry) => !entry.keep)
+    .sort((a, b) => a.lastUsed - b.lastUsed)
 
-    const removeCount = nextKeys.length - CONFIG.cacheMax
-    for (const item of sorted.slice(0, removeCount)) {
-      await cache.delete(item.request)
-      delete meta[item.request.url]
-    }
+  let count = keys.length
+  for (const entry of removable) {
+    if (count <= CONFIG.cacheMax) break
+    await cache.delete(entry.request)
+    delete meta[entry.url]
+    count -= 1
   }
 
   saveMeta(meta)
+  state.cacheStatus = `${count}/${CONFIG.cacheMax}`
+  updateDebug()
 }
 
 async function updateCacheStatus() {
@@ -299,21 +285,39 @@ async function updateCacheStatus() {
     const cache = await getMediaCache()
     const keys = await cache.keys()
     state.cacheStatus = `${keys.length}/${CONFIG.cacheMax}`
-    updateDebug()
   } catch {
     state.cacheStatus = '-'
   }
+  updateDebug()
 }
 
 async function clearMediaCache() {
-  await caches.delete(CACHE_NAME)
+  await caches.delete(MEDIA_CACHE)
   localStorage.removeItem(META_KEY)
   state.cacheStatus = 'cleared'
+  state.bundleStatus = 'cleared'
   updateDebug()
   setStatus('미디어 캐시를 삭제했습니다')
 }
 
-async function syncConfig() {
+async function getCachedBlobUrl(item) {
+  const cache = await getMediaCache()
+  let response = await cache.match(item.url)
+
+  if (!response) {
+    if (!navigator.onLine) throw new Error('offline cache miss')
+    await ensureCached(item, 1, 1)
+    response = await cache.match(item.url)
+  }
+
+  if (!response) throw new Error('cache miss')
+
+  touchMeta(item.url, { type: item.type })
+  const blob = await response.clone().blob()
+  return URL.createObjectURL(blob)
+}
+
+async function syncConfig(reason = 'scheduled') {
   if (state.isSyncing) return
   state.isSyncing = true
 
@@ -321,52 +325,64 @@ async function syncConfig() {
     setStatus('CMS 재생목록 확인중...')
     const data = await fetchPlayerConfig()
 
+    handleRemoteCommand(data.devices || [])
+
     const nextLeft = normalizeItems(data.playlists?.left)
     const nextRight = normalizeItems(data.playlists?.right)
 
-    handleRemoteCommand(data.devices || [])
-
-    const leftChanged = !samePlaylist(state.leftItems, nextLeft)
-    const rightChanged = !samePlaylist(state.rightItems, nextRight)
-
-    if (leftChanged) {
-      setStatus('좌측 새 콘텐츠 준비중...')
-      await preparePlaylist(nextLeft)
-      state.leftItems = nextLeft
-      state.leftIndex = 0
-      startPlayback('left')
+    if (!nextLeft.length && !nextRight.length) {
+      throw new Error('playlist empty')
     }
 
-    if (rightChanged) {
-      setStatus('우측 새 콘텐츠 준비중...')
-      await preparePlaylist(nextRight)
-      state.rightItems = nextRight
-      state.rightIndex = 0
-      startPlayback('right')
+    const changed = bundleSignature(nextLeft, nextRight) !== bundleSignature(state.leftItems, state.rightItems)
+
+    if (!changed && state.leftItems.length + state.rightItems.length > 0) {
+      state.lastSync = new Date().toLocaleString('ko-KR')
+      state.bundleStatus = '변경 없음'
+      setStatus('CMS 확인 완료: 변경 없음')
+      updateDebug()
+      return
     }
 
-    if (!leftChanged && !state.leftTimer) startPlayback('left')
-    if (!rightChanged && !state.rightTimer) startPlayback('right')
+    if (CONFIG.bundleMode === 'cache' && CONFIG.activateWhenCached) {
+      await ensureBundleCached(nextLeft, nextRight)
+    }
 
-    await prefetchAround('left', state.leftItems, state.leftIndex)
-    await prefetchAround('right', state.rightItems, state.rightIndex)
+    state.leftItems = nextLeft
+    state.rightItems = nextRight
+    state.leftIndex = 0
+    state.rightIndex = 0
+
+    saveBundle(nextLeft, nextRight)
+
+    startPlayback('left')
+    window.setTimeout(() => startPlayback('right'), 500)
 
     state.lastSync = new Date().toLocaleString('ko-KR')
-    setStatus('CMS 재생목록 동기화 완료')
+    setStatus('새 재생목록 적용 완료')
     updateDebug()
   } catch (error) {
-    console.error(error)
-    setStatus(`CMS 확인 실패, 기존 재생 유지: ${error.message}`)
+    console.warn(error)
+    if (!state.leftItems.length && !state.rightItems.length) {
+      const ok = loadSavedBundle()
+      if (ok) {
+        startPlayback('left')
+        window.setTimeout(() => startPlayback('right'), 500)
+        setStatus('오프라인: 저장된 재생목록 사용')
+      } else {
+        setStatus(`재생목록 확인 실패: ${error.message}`)
+      }
+    } else {
+      setStatus(`CMS 확인 실패, 기존 재생 유지: ${error.message}`)
+    }
     updateDebug()
   } finally {
     state.isSyncing = false
   }
 }
 
-
 function handleRemoteCommand(devices) {
   if (!CONFIG.deviceId) return
-
   const myDevice = devices.find((device) => device.id === CONFIG.deviceId)
   if (!myDevice) return
 
@@ -382,24 +398,16 @@ function handleRemoteCommand(devices) {
 
 async function sendHeartbeat() {
   if (!CONFIG.deviceId) return
-
   try {
     const now = new Date().toLocaleString('ko-KR')
     await fetchJson(`${CONFIG.apiBase}/api/devices`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        id: CONFIG.deviceId,
-        online: true,
-        lastSeen: now,
-      }),
+      body: JSON.stringify({ id: CONFIG.deviceId, online: true, lastSeen: now }),
     })
-
     state.lastHeartbeat = now
     updateDebug()
-  } catch (error) {
-    console.warn('Heartbeat failed:', error.message)
-  }
+  } catch (error) {}
 }
 
 function getZone(side) {
@@ -416,43 +424,39 @@ function getIndex(side) {
 
 function setIndex(side, value) {
   if (side === 'left') state.leftIndex = value
-  if (side === 'right') state.rightIndex = value
+  else state.rightIndex = value
 }
 
 function clearSideTimer(side) {
-  if (side === 'left' && state.leftTimer) {
-    clearTimeout(state.leftTimer)
-    state.leftTimer = null
-  }
-
-  if (side === 'right' && state.rightTimer) {
-    clearTimeout(state.rightTimer)
-    state.rightTimer = null
-  }
+  const key = side === 'left' ? 'leftTimer' : 'rightTimer'
+  if (state[key]) clearTimeout(state[key])
+  state[key] = null
 }
 
 function setSideTimer(side, callback, ms) {
   clearSideTimer(side)
+  if (side === 'left') state.leftTimer = setTimeout(callback, ms)
+  else state.rightTimer = setTimeout(callback, ms)
+}
 
-  if (side === 'left') {
-    state.leftTimer = setTimeout(callback, ms)
-  } else {
-    state.rightTimer = setTimeout(callback, ms)
-  }
+function clearWatchdog(side) {
+  const key = side === 'left' ? 'leftWatchdog' : 'rightWatchdog'
+  if (state[key]) clearTimeout(state[key])
+  state[key] = null
+}
+
+function setWatchdog(side, callback, ms) {
+  clearWatchdog(side)
+  if (side === 'left') state.leftWatchdog = setTimeout(callback, ms)
+  else state.rightWatchdog = setTimeout(callback, ms)
 }
 
 function emptyMarkup(side) {
   const title = side === 'left' ? 'LocalVision' : 'LV'
-  const sub = side === 'left'
-    ? '좌측 매장 콘텐츠가 없습니다'
-    : '우측 공통 콘텐츠가 없습니다'
-
-  return `
-    <div class="empty ${side === 'right' ? 'small' : ''}">
-      <strong>${title}</strong>
-      <span>${sub}</span>
-    </div>
-  `
+  const sub = side === 'left' ? '좌측 매장 콘텐츠가 없습니다' : '우측 공통 콘텐츠가 없습니다'
+  return `<div class="empty ${side === 'right' ? 'small loading' : ''}">
+    <strong>${title}</strong><span>${sub}</span>
+  </div>`
 }
 
 function releaseObjectUrl(side) {
@@ -464,12 +468,12 @@ function releaseObjectUrl(side) {
 
 function startPlayback(side) {
   clearSideTimer(side)
+  clearWatchdog(side)
 
   const items = getItems(side)
   const zone = getZone(side)
 
   if (!items.length) {
-    releaseObjectUrl(side)
     zone.innerHTML = emptyMarkup(side)
     return
   }
@@ -480,30 +484,30 @@ function startPlayback(side) {
 }
 
 async function playItem(side, item) {
-  const zone = getZone(side)
+  if (!item?.url) return scheduleNext(side, 5)
 
-  if (!item?.url) {
-    zone.innerHTML = emptyMarkup(side)
-    scheduleNext(side, item?.duration || 10)
-    return
-  }
+  state.playToken[side] += 1
+  const token = state.playToken[side]
 
   try {
-    const objectUrl = await getCachedMediaBlobUrl(item)
-    releaseObjectUrl(side)
-    state.objectUrls[side] = objectUrl
+    const src = CONFIG.videoMode === 'cache' || item.type !== 'video'
+      ? await getCachedBlobUrl(item)
+      : item.url
 
-    if (item.type === 'video') {
-      playVideo(side, item, objectUrl)
-    } else {
-      playImage(side, item, objectUrl)
+    if (token !== state.playToken[side]) {
+      if (src.startsWith('blob:')) URL.revokeObjectURL(src)
+      return
     }
 
-    const currentIndex = getIndex(side)
-    prefetchAround(side, getItems(side), currentIndex + 1)
+    releaseObjectUrl(side)
+    if (src.startsWith('blob:')) state.objectUrls[side] = src
+
+    if (item.type === 'video') playVideo(side, item, src, token)
+    else playImage(side, item, src, token)
   } catch (error) {
-    console.warn('play item failed:', item.url, error.message)
-    playDirectFallback(side, item)
+    console.warn('play failed', side, error.message)
+    setStatus(`${side} 캐시 없음, 다음 콘텐츠 대기`)
+    scheduleNext(side, 5)
   }
 }
 
@@ -511,76 +515,88 @@ function applyFit(element) {
   element.className = `media fade-in ${CONFIG.fit === 'contain' ? 'contain' : ''}`
 }
 
-function playImage(side, item, src) {
-  const zone = getZone(side)
+function swapWhenReady(side, element, token) {
+  if (token !== state.playToken[side]) return
+  getZone(side).replaceChildren(element)
+}
+
+function playImage(side, item, src, token) {
   const img = document.createElement('img')
   applyFit(img)
   img.src = src
   img.alt = item.title || 'LocalVision image'
 
   img.onload = () => {
-    zone.replaceChildren(img)
+    if (token !== state.playToken[side]) return
+    swapWhenReady(side, img, token)
     scheduleNext(side, item.duration || 10)
   }
 
-  img.onerror = () => {
-    zone.innerHTML = emptyMarkup(side)
-    scheduleNext(side, 5)
-  }
+  img.onerror = () => scheduleNext(side, 5)
 }
 
-function playVideo(side, item, src) {
-  const zone = getZone(side)
+function playVideo(side, item, src, token) {
   const video = document.createElement('video')
-
   applyFit(video)
   video.src = src
-  video.autoplay = true
+  video.autoplay = false
   video.muted = true
   video.playsInline = true
   video.preload = 'auto'
+  video.controls = false
 
-  video.onloadeddata = () => {
-    zone.replaceChildren(video)
-    video.play().catch(() => {})
+  let swapped = false
+  let started = false
+
+  const reveal = () => {
+    if (swapped || token !== state.playToken[side]) return
+    swapped = true
+
+    try { video.currentTime = 0 } catch {}
+
+    swapWhenReady(side, video, token)
+
+    const delay = side === 'right' ? 200 : 0
+    setTimeout(() => {
+      video.play().then(() => {
+        started = true
+        clearWatchdog(side)
+      }).catch(() => {
+        setTimeout(() => video.play().catch(() => {}), 300)
+      })
+    }, delay)
   }
 
-  video.onended = () => {
-    next(side)
-  }
+  video.onloadeddata = reveal
+  video.oncanplay = reveal
 
-  video.onerror = () => {
-    zone.innerHTML = emptyMarkup(side)
-    scheduleNext(side, 5)
-  }
+  video.onended = () => next(side)
+  video.onerror = () => scheduleNext(side, 5)
 
   video.onloadedmetadata = () => {
     if (Number.isFinite(video.duration) && video.duration > 0) {
-      setSideTimer(side, () => next(side), (video.duration + 2) * 1000)
+      setSideTimer(side, () => next(side), Math.ceil(video.duration + 2) * 1000)
     }
   }
 
+  setWatchdog(side, () => {
+    if (!started) next(side)
+  }, 15000)
+
   const safetyMs = Math.max(60, Number(item.duration || 0) || 1800) * 1000
   setSideTimer(side, () => next(side), safetyMs)
-}
 
-function playDirectFallback(side, item) {
-  if (item.type === 'video') {
-    playVideo(side, item, item.url)
-  } else {
-    playImage(side, item, item.url)
-  }
+  try { video.load() } catch {}
 }
 
 function scheduleNext(side, durationSeconds) {
-  const ms = Math.max(3, Number(durationSeconds || 10)) * 1000
-  setSideTimer(side, () => next(side), ms)
+  setSideTimer(side, () => next(side), Math.max(3, Number(durationSeconds || 10)) * 1000)
 }
 
 function next(side) {
+  clearWatchdog(side)
   const items = getItems(side)
   if (!items.length) return
-
   const nextIndex = (getIndex(side) + 1) % items.length
   setIndex(side, nextIndex)
   playItem(side, items[nextIndex])
@@ -588,10 +604,7 @@ function next(side) {
 
 function setupDailyRestart() {
   if (!CONFIG.restart) return
-
-  const jitterMs = CONFIG.restartJitterSec > 0
-    ? Math.floor(Math.random() * CONFIG.restartJitterSec * 1000)
-    : 0
+  const jitterMs = CONFIG.restartJitterSec > 0 ? Math.floor(Math.random() * CONFIG.restartJitterSec * 1000) : 0
 
   setInterval(() => {
     const now = new Date()
@@ -601,67 +614,52 @@ function setupDailyRestart() {
 
     if (`${hh}:${mm}` === CONFIG.restart && state.lastRestartKey !== key) {
       state.lastRestartKey = key
-
       setTimeout(() => {
-        if (CONFIG.restartMode === 'reload') {
-          location.reload()
-        }
+        if (CONFIG.restartMode === 'reload') location.reload()
       }, jitterMs)
     }
   }, 15000)
 }
 
 function setupDebugToggle() {
-  if (CONFIG.debug) {
-    els.debugPanel.hidden = false
-  }
+  if (CONFIG.debug) els.debugPanel.hidden = false
 
   document.body.addEventListener('click', () => {
     state.clickCount += 1
     clearTimeout(state.clickTimer)
-    state.clickTimer = setTimeout(() => {
-      state.clickCount = 0
-    }, 1300)
-
+    state.clickTimer = setTimeout(() => { state.clickCount = 0 }, 1300)
     if (state.clickCount >= 5) {
       els.debugPanel.hidden = !els.debugPanel.hidden
       state.clickCount = 0
     }
   })
 
-  els.reloadBtn.addEventListener('click', () => {
-    location.reload()
-  })
-
-  els.syncBtn.addEventListener('click', () => {
-    syncConfig()
-    sendHeartbeat()
-  })
-
-  els.clearCacheBtn.addEventListener('click', () => {
-    clearMediaCache()
-  })
+  els.reloadBtn.addEventListener('click', () => location.reload())
+  els.syncBtn.addEventListener('click', () => syncConfig('manual'))
+  els.clearCacheBtn.addEventListener('click', () => clearMediaCache())
 }
-
-window.addEventListener('error', (event) => {
-  setStatus(`오류: ${event.message}`)
-})
-
-window.addEventListener('unhandledrejection', (event) => {
-  setStatus(`오류: ${event.reason?.message || event.reason}`)
-})
 
 async function boot() {
   await registerServiceWorker()
   setupDebugToggle()
   setupDailyRestart()
-  updateDebug()
   await updateCacheStatus()
-  await syncConfig()
+
+  if (loadSavedBundle()) {
+    startPlayback('left')
+    window.setTimeout(() => startPlayback('right'), 500)
+    setStatus('저장된 캐시 재생 시작')
+  }
+
+  await syncConfig('startup')
   await sendHeartbeat()
 
-  setInterval(syncConfig, CONFIG.refreshMs)
+  setInterval(() => syncConfig('hourly'), CONFIG.refreshMs)
   setInterval(sendHeartbeat, CONFIG.heartbeatMs)
+  setInterval(updateDebug, 2000)
 }
+
+window.addEventListener('error', (event) => setStatus(`오류: ${event.message}`))
+window.addEventListener('unhandledrejection', (event) => setStatus(`오류: ${event.reason?.message || event.reason}`))
 
 boot()
