@@ -126,3 +126,25 @@ cd "$env:LOCALAPPDATA\Android\Sdk\platform-tools"
 - 새 상태 메시지나 오류 메시지가 뜨면 다시 나타났다가 5초 뒤 숨김
 - 디버그 패널은 기존처럼 5번 탭으로 열고 닫을 수 있도록 유지
 - `sw.js` 앱 캐시 이름을 `lv-player-app-v1.4.3`으로 변경해 TV에서 새 파일을 확실히 받도록 처리
+
+
+## v1.4.4 수정 사항 — CMS 강제 새로고침 해결
+
+- CMS `refresh` 명령 확인 주기를 `commandPollMs` 기본 15초로 추가
+- 기존 `refresh=3600000`은 재생목록 정기 동기화용으로 유지
+- CMS 새로고침 명령 수신 시 단순 `location.reload()` 대신 아래 순서로 처리
+  1. `lv-media-bundle-*` 미디어 캐시 삭제
+  2. `lv-media-bundle-meta-*` 로컬 메타 삭제
+  3. `lv-playlist-bundle-*` 저장 재생목록 삭제
+  4. 페이지 reload
+- 미디어 캐시 이름을 `lv-media-bundle-v1.4.4`로 변경
+- 앱 서비스워커 캐시 이름을 `lv-player-app-v1.4.4`로 변경
+- 서비스워커를 같은 도메인 파일에 대해 network-first 방식으로 수정해 배포 후 구버전 `app.js`가 오래 남는 문제 완화
+
+## 적용 후 테스트
+
+1. Player 파일 전체 업로드
+2. TV에서 앱 또는 WebView를 한 번 재시작
+3. CMS에서 `TV 새로고침 요청` 클릭
+4. 최대 15초 안에 TV 하단 상태에 `CMS 새로고침 명령 수신: 캐시 삭제 후 재시작` 표시
+5. 캐시 삭제 후 최신 재생목록/미디어를 다시 다운로드

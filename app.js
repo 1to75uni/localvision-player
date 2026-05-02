@@ -6,6 +6,7 @@ const CONFIG = {
   apiBase: (params.get('apiBase') || 'https://localvision-cms.pages.dev').replace(/\/$/, ''),
   refreshMs: Number(params.get('refresh') || 3600000),
   heartbeatMs: Number(params.get('heartbeat') || 30000),
+  commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 15000),
   cacheMax: Number(params.get('cacheMax') || 60),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -19,9 +20,9 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1.4'
-const META_KEY = 'lv-media-bundle-meta-v1.4'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1.4-${CONFIG.store}`
+const MEDIA_CACHE = 'lv-media-bundle-v1.4.4'
+const META_KEY = 'lv-media-bundle-meta-v1.4.4'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1.4.4-${CONFIG.store}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
 let statusHideTimer = null
 
@@ -344,12 +345,53 @@ async function updateCacheStatus() {
   updateDebug()
 }
 
-async function clearMediaCache() {
-  await caches.delete(MEDIA_CACHE)
-  localStorage.removeItem(META_KEY)
+function removeLocalStorageByPrefix(prefix) {
+  try {
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith(prefix))
+      .forEach((key) => localStorage.removeItem(key))
+  } catch (error) {}
+}
+
+async function clearPlaybackCaches() {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(
+        keys
+          .filter((key) => key.startsWith('lv-media-bundle-'))
+          .map((key) => caches.delete(key))
+      )
+    }
+  } catch (error) {}
+
+  try {
+    removeLocalStorageByPrefix('lv-media-bundle-meta-')
+    removeLocalStorageByPrefix('lv-playlist-bundle-')
+    localStorage.removeItem(META_KEY)
+    localStorage.removeItem(PLAYLIST_KEY)
+  } catch (error) {}
+
   state.cacheStatus = 'cleared'
   state.bundleStatus = 'cleared'
   updateDebug()
+}
+
+async function hardRefreshFromCms(commandName = 'refresh') {
+  setStatus(commandName === 'refresh'
+    ? 'CMS 새로고침 명령 수신: 캐시 삭제 후 재시작'
+    : `CMS ${commandName} 명령 수신: 캐시 삭제 후 재시작`
+  )
+
+  await clearPlaybackCaches()
+
+  window.setTimeout(() => {
+    location.reload()
+  }, 300)
+}
+
+async function clearMediaCache() {
+  await clearPlaybackCaches()
   setStatus('미디어 캐시를 삭제했습니다')
 }
 
@@ -379,7 +421,8 @@ async function syncConfig(reason = 'scheduled') {
     setStatus('CMS 재생목록 확인중...')
     const data = await fetchPlayerConfig()
 
-    handleRemoteCommand(data.devices || [])
+    const commandHandled = await handleRemoteCommand(data.devices || [])
+    if (commandHandled) return
 
     const nextLeft = normalizeItems(data.playlists?.left)
     const nextRight = normalizeItems(data.playlists?.right)
@@ -435,19 +478,37 @@ async function syncConfig(reason = 'scheduled') {
   }
 }
 
-function handleRemoteCommand(devices) {
-  if (!CONFIG.deviceId) return
+async function handleRemoteCommand(devices) {
+  if (!CONFIG.deviceId) return false
   const myDevice = devices.find((device) => device.id === CONFIG.deviceId)
-  if (!myDevice) return
+  if (!myDevice) return false
 
-  if (myDevice.lastCommand === 'refresh' && myDevice.commandAt) {
-    const handled = localStorage.getItem(handledCommandKey)
-    if (handled !== myDevice.commandAt) {
-      localStorage.setItem(handledCommandKey, myDevice.commandAt)
-      setStatus('CMS 새로고침 명령 수신')
-      setTimeout(() => location.reload(), 600)
-    }
-  }
+  const command = String(myDevice.lastCommand || '')
+  const commandAt = String(myDevice.commandAt || '')
+  if (!command || !commandAt) return false
+
+  // CMS에서 보낸 새로고침 계열 명령은 단순 reload가 아니라
+  // 미디어 캐시 + 저장된 playlist bundle을 삭제한 뒤 다시 시작합니다.
+  const hardRefreshCommands = new Set(['refresh', 'hard_refresh', 'clear_cache_refresh', 'cache_refresh'])
+  if (!hardRefreshCommands.has(command)) return false
+
+  const handled = localStorage.getItem(handledCommandKey)
+  const commandKey = `${command}:${commandAt}`
+
+  // 이전 버전은 commandAt만 저장했으므로, 이전 저장값도 함께 중복 처리합니다.
+  if (handled === commandKey || handled === commandAt) return false
+
+  localStorage.setItem(handledCommandKey, commandKey)
+  await hardRefreshFromCms(command)
+  return true
+}
+
+async function checkRemoteCommand() {
+  if (!CONFIG.deviceId) return
+  try {
+    const data = await fetchPlayerConfig()
+    await handleRemoteCommand(data.devices || [])
+  } catch (error) {}
 }
 
 async function sendHeartbeat() {
@@ -709,6 +770,9 @@ async function boot() {
   await sendHeartbeat()
 
   setInterval(() => syncConfig('hourly'), CONFIG.refreshMs)
+  if (CONFIG.commandPollMs > 0) {
+    setInterval(() => checkRemoteCommand(), CONFIG.commandPollMs)
+  }
   setInterval(sendHeartbeat, CONFIG.heartbeatMs)
   setInterval(updateDebug, 2000)
 }

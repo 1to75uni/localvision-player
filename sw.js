@@ -1,4 +1,4 @@
-const APP_CACHE = 'lv-player-app-v1.4.3'
+const APP_CACHE = 'lv-player-app-v1.4.4'
 const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {
@@ -28,18 +28,15 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin === location.origin) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        const network = fetch(event.request, { cache: 'no-store' })
-          .then((response) => {
-            if (response.ok) {
-              const clone = response.clone()
-              caches.open(APP_CACHE).then((cache) => cache.put(event.request, clone))
-            }
-            return response
-          })
-          .catch(() => cached)
-        return cached || network
-      })
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(APP_CACHE).then((cache) => cache.put(event.request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(event.request))
     )
   }
 })

@@ -10,9 +10,12 @@
 - README.md
 
 2. 브라우저에서 아래 주소 열기
-https://localvision-player.pages.dev/version.json?v=142
+https://localvision-player.pages.dev/version.json?v=144
 
 정상값:
-"build": "v1.4.2-real-api-media-cache"
+"build": "v1.4.4-hard-refresh-command-poll"
 
-3. Player 디버그 패널 우측 상단이 v1.4.2로 보여야 함.
+3. Player 디버그 패널 우측 상단이 v1.4.4로 보여야 함.
+
+4. TV URL에는 기존 파라미터 그대로 두되, 선택으로 commandPoll=15000을 붙일 수 있음.
+기본값이 이미 15000ms라 붙이지 않아도 됨.
