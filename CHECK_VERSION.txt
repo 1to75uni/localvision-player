@@ -1,0 +1,18 @@
+업로드 후 확인할 것:
+
+1. GitHub localvision-player 저장소에 아래 파일들이 모두 같은 커밋으로 올라갔는지 확인
+- index.html
+- app.js
+- style.css
+- sw.js
+- loading.jpg
+- version.json
+- README.md
+
+2. 브라우저에서 아래 주소 열기
+https://localvision-player.pages.dev/version.json?v=142
+
+정상값:
+"build": "v1.4.2-real-api-media-cache"
+
+3. Player 디버그 패널 우측 상단이 v1.4.2로 보여야 함.

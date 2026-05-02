@@ -1,5 +1,5 @@
 {
-  "version": 14.1,
-  "build": "v1.4.1-api-media-cache",
+  "version": 14.2,
+  "build": "v1.4.2-real-api-media-cache",
   "ts": "2026-05-02T00:00:00+09:00"
 }

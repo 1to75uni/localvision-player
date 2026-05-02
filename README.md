@@ -1,4 +1,4 @@
-# LocalVision Player v1.4.1 API Media Cache
+# LocalVision Player v1.4.2 Real API Media Cache
 
 네트워크가 불안정한 매장용 안정화 Player입니다.
 
@@ -41,3 +41,12 @@ https://localvision-player.pages.dev/?store=goobne&deviceId=dv_001&apiBase=https
 - R2 CORS 문제로 `Failed to fetch`가 나는 현상 완화
 - `cacheVia=api` 기본값 추가
 - `loading.jpg` 포함
+
+
+## v1.4.2 실제 수정
+
+- `index.html` 표시 버전을 v1.4.2로 변경
+- `app.js`에 `cacheVia=api` 실제 로직 반영
+- R2 public URL을 `CMS /api/media?key=stores/...`로 변환해서 다운로드
+- 캐시 키도 R2 URL이 아니라 `/api/media` URL 기준으로 저장
+- `sw.js` 캐시 이름을 v1.4.2로 변경해 기존 v1.4 캐시를 밀어냄

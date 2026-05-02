@@ -13,6 +13,7 @@ const CONFIG = {
   fit: params.get('fit') || 'cover',
   videoMode: params.get('videoMode') || 'cache',
   bundleMode: params.get('bundleMode') || 'cache',
+  cacheVia: params.get('cacheVia') || 'api',
   cacheAll: params.get('cacheAll') !== '0',
   activateWhenCached: params.get('activateWhenCached') !== '0',
   debug: params.get('debug') === '1',
@@ -107,6 +108,35 @@ function guessType(value) {
   return 'image'
 }
 
+
+function makeMediaFetchUrl(rawUrl) {
+  if (!rawUrl) return ''
+  if (CONFIG.cacheVia === 'direct') return rawUrl
+
+  try {
+    const url = new URL(rawUrl)
+
+    // 이미 CMS media API면 그대로 사용
+    if (url.pathname.includes('/api/media')) {
+      return rawUrl
+    }
+
+    // R2 public URL 안의 stores/... 또는 system/... key만 뽑아서 CMS 프록시로 가져옴
+    const markers = ['/stores/', '/system/']
+    for (const marker of markers) {
+      const idx = url.pathname.indexOf(marker)
+      if (idx >= 0) {
+        const key = url.pathname.slice(idx + 1)
+        return `${CONFIG.apiBase}/api/media?key=${encodeURIComponent(key)}`
+      }
+    }
+
+    return rawUrl
+  } catch {
+    return rawUrl
+  }
+}
+
 function normalizeItems(items) {
   if (!Array.isArray(items)) return []
   return items
@@ -114,9 +144,11 @@ function normalizeItems(items) {
     .map((item) => ({
       ...item,
       duration: Number(item.duration || 10),
+      sourceUrl: item.url || '',
       url: item.url || '',
+      cacheUrl: makeMediaFetchUrl(item.url || ''),
       type: item.type || guessType(item.url || item.fileName || ''),
-      cacheKey: item.url || '',
+      cacheKey: makeMediaFetchUrl(item.url || ''),
     }))
     .filter((item) => item.url)
 }
@@ -125,6 +157,7 @@ function lightItems(items) {
   return items.map((item) => ({
     id: item.id,
     url: item.url,
+    cacheUrl: item.cacheUrl,
     type: item.type,
     duration: item.duration,
     status: item.status,
@@ -198,12 +231,13 @@ async function isCached(url) {
 }
 
 async function ensureCached(item, index, total) {
-  if (!item?.url) return false
+  const fetchUrl = item?.cacheUrl || item?.url
+  if (!fetchUrl) return false
 
   const cache = await getMediaCache()
-  const hit = await cache.match(item.url)
+  const hit = await cache.match(fetchUrl)
   if (hit) {
-    touchMeta(item.url, { type: item.type, side: item.side })
+    touchMeta(fetchUrl, { type: item.type, side: item.side, sourceUrl: item.url })
     return true
   }
 
@@ -211,10 +245,17 @@ async function ensureCached(item, index, total) {
   setStatus(`미디어 다운로드중 ${index}/${total}`)
   updateDebug()
 
-  const response = await fetch(item.url, { cache: 'no-store' })
-  if (!response.ok) throw new Error(`media ${response.status}`)
-  await cache.put(item.url, response.clone())
-  touchMeta(item.url, { type: item.type, side: item.side })
+  let response
+  try {
+    response = await fetch(fetchUrl, { cache: 'no-store' })
+  } catch (error) {
+    throw new Error(`media fetch failed: ${item.title || item.url || fetchUrl}`)
+  }
+
+  if (!response.ok) throw new Error(`media ${response.status}: ${item.title || item.url || fetchUrl}`)
+
+  await cache.put(fetchUrl, response.clone())
+  touchMeta(fetchUrl, { type: item.type, side: item.side, sourceUrl: item.url })
   return true
 }
 
@@ -227,8 +268,9 @@ async function ensureBundleCached(left, right) {
   const unique = []
   const seen = new Set()
   for (const item of bundle) {
-    if (!seen.has(item.url)) {
-      seen.add(item.url)
+    const key = item.cacheUrl || item.url
+    if (!seen.has(key)) {
+      seen.add(key)
       unique.push(item)
     }
   }
@@ -239,7 +281,7 @@ async function ensureBundleCached(left, right) {
     await ensureCached(unique[i], i + 1, unique.length)
   }
 
-  await pruneCache(unique.map((item) => item.url))
+  await pruneCache(unique.map((item) => item.cacheUrl || item.url))
   state.bundleStatus = `완료 ${unique.length}개`
   updateDebug()
   return true
@@ -301,18 +343,19 @@ async function clearMediaCache() {
 }
 
 async function getCachedBlobUrl(item) {
+  const fetchUrl = item.cacheUrl || item.url
   const cache = await getMediaCache()
-  let response = await cache.match(item.url)
+  let response = await cache.match(fetchUrl)
 
   if (!response) {
     if (!navigator.onLine) throw new Error('offline cache miss')
     await ensureCached(item, 1, 1)
-    response = await cache.match(item.url)
+    response = await cache.match(fetchUrl)
   }
 
   if (!response) throw new Error('cache miss')
 
-  touchMeta(item.url, { type: item.type })
+  touchMeta(fetchUrl, { type: item.type, sourceUrl: item.url })
   const blob = await response.clone().blob()
   return URL.createObjectURL(blob)
 }
