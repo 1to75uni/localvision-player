@@ -1,12 +1,20 @@
 const params = new URLSearchParams(location.search)
 
+const LAST_GOOD_STORE_KEY = 'lv-last-good-store'
+const LAST_GOOD_API_BASE_KEY = 'lv-last-good-api-base'
+const rawStore = String(params.get('store') || '').trim()
+const rawApiBase = String(params.get('apiBase') || '').trim().replace(/\/$/, '')
+const lastGoodStore = String(localStorage.getItem(LAST_GOOD_STORE_KEY) || '').trim()
+const lastGoodApiBase = String(localStorage.getItem(LAST_GOOD_API_BASE_KEY) || '').trim().replace(/\/$/, '')
+
 const CONFIG = {
-  store: params.get('store') || 'goobne',
+  store: rawStore || lastGoodStore,
   deviceId: params.get('deviceId') || '',
-  apiBase: (params.get('apiBase') || 'https://localvision-cms.pages.dev').replace(/\/$/, ''),
+  apiBase: rawApiBase || lastGoodApiBase,
   refreshMs: Number(params.get('refresh') || 3600000),
   heartbeatMs: Number(params.get('heartbeat') || 30000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 15000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 15000),
   cacheMax: Number(params.get('cacheMax') || 60),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -20,10 +28,25 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1.4.4'
-const META_KEY = 'lv-media-bundle-meta-v1.4.4'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1.4.4-${CONFIG.store}`
-const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store}`
+const MEDIA_CACHE = 'lv-media-bundle-core-v1-notice01'
+const META_KEY = 'lv-media-bundle-meta-core-v1-notice01'
+const PLAYLIST_KEY = `lv-playlist-bundle-core-v1-notice01-${CONFIG.store}`
+const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
+const bootIssues = []
+if (!rawStore) {
+  if (lastGoodStore) {
+    bootIssues.push({ level: 'warning', code: 'LV-STORE-RECOVERED', message: `URL에 store가 없어 마지막 정상 매장 코드(${lastGoodStore})로 복구했습니다.` })
+  } else {
+    bootIssues.push({ level: 'fatal', code: 'LV-STORE-MISSING', title: '매장 코드가 없습니다.', message: 'CMS에서 복사한 TV용 URL에 store=매장코드를 포함해 주세요.' })
+  }
+}
+if (!rawApiBase) {
+  if (lastGoodApiBase) {
+    bootIssues.push({ level: 'warning', code: 'LV-API-RECOVERED', message: `URL에 apiBase가 없어 마지막 정상 CMS 주소로 복구했습니다.` })
+  } else {
+    bootIssues.push({ level: 'fatal', code: 'LV-API-MISSING', title: 'CMS 주소가 없습니다.', message: 'CMS에서 복사한 TV용 URL에 apiBase=CMS주소를 포함해 주세요.' })
+  }
+}
 let statusHideTimer = null
 
 const state = {
@@ -45,6 +68,11 @@ const state = {
   isSyncing: false,
   clickCount: 0,
   clickTimer: null,
+  errorReportTimes: {},
+  activeNoticeId: '',
+  noticeVisible: false,
+  noticeTimer: null,
+  noticeErrorIds: {},
 }
 
 const els = {
@@ -80,6 +108,77 @@ function setStatus(message) {
   if (els.statusPill) els.statusPill.textContent = message
   if (els.dbgStatus) els.dbgStatus.textContent = message
   showStatusTemporarily(5000)
+}
+
+function createPlayerError(code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
+}
+
+function shouldReportError(key, minMs = 60000) {
+  const now = Date.now()
+  const last = state.errorReportTimes[key] || 0
+  if (now - last < minMs) return false
+  state.errorReportTimes[key] = now
+  return true
+}
+
+async function reportPlayerError(errorCode, message, extra = {}, level = 'error') {
+  if (!CONFIG.apiBase) return
+  const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.url || ''}:${message}`
+  if (!shouldReportError(key)) return
+
+  try {
+    await fetch(`${CONFIG.apiBase}/api/player-errors`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        store: CONFIG.store || rawStore || lastGoodStore || '',
+        deviceId: CONFIG.deviceId || '',
+        errorCode,
+        message,
+        level,
+        time: new Date().toISOString(),
+        href: location.href,
+        userAgent: navigator.userAgent,
+        extra,
+      }),
+    })
+  } catch (error) {}
+}
+
+function showErrorScreen({ title = 'LocalVision 오류', message = '플레이어 실행 중 문제가 발생했습니다.', errorCode = 'LV-UNKNOWN', detail = '' }) {
+  let overlay = document.getElementById('playerErrorOverlay')
+  if (!overlay) {
+    overlay = document.createElement('div')
+    overlay.id = 'playerErrorOverlay'
+    document.body.appendChild(overlay)
+  }
+
+  overlay.innerHTML = `
+    <div class="player-error-card">
+      <p class="player-error-kicker">LocalVision 오류</p>
+      <h1>${title}</h1>
+      <p>${message}</p>
+      ${detail ? `<pre>${detail}</pre>` : ''}
+      <strong>오류코드: ${errorCode}</strong>
+      <span>점주님은 위 오류코드를 관리자에게 알려주세요.</span>
+    </div>
+  `
+  overlay.hidden = false
+  setStatus(`${errorCode} · ${message}`)
+}
+
+function hideErrorScreen() {
+  const overlay = document.getElementById('playerErrorOverlay')
+  if (overlay) overlay.hidden = true
+}
+
+function markGoodConfig() {
+  if (CONFIG.store) localStorage.setItem(LAST_GOOD_STORE_KEY, CONFIG.store)
+  if (CONFIG.apiBase) localStorage.setItem(LAST_GOOD_API_BASE_KEY, CONFIG.apiBase)
 }
 
 function updateDebug() {
@@ -413,6 +512,157 @@ async function getCachedBlobUrl(item) {
   return URL.createObjectURL(blob)
 }
 
+
+function normalizeNotice(notice) {
+  if (!notice || !notice.id) return null
+  const type = notice.type || guessType(notice.mediaUrl || notice.url || notice.fileName || '')
+  return {
+    ...notice,
+    type,
+    mediaUrl: notice.mediaUrl || notice.url || '',
+    linkUrl: notice.linkUrl || '',
+    durationSec: Math.max(5, Number(notice.durationSec || notice.duration || 15)),
+    priority: notice.priority || 'normal',
+  }
+}
+
+async function fetchActiveNotice() {
+  if (!CONFIG.apiBase || !CONFIG.store) return null
+  const data = await fetchJson(`${CONFIG.apiBase}/api/notices?active=1&store=${encodeURIComponent(CONFIG.store)}&limit=1&t=${Date.now()}`)
+  return normalizeNotice(data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+}
+
+function getNoticeOverlay() {
+  let overlay = document.getElementById('noticeOverlay')
+  if (!overlay) {
+    overlay = document.createElement('div')
+    overlay.id = 'noticeOverlay'
+    document.body.appendChild(overlay)
+  }
+  return overlay
+}
+
+function hideNoticeOverlay() {
+  if (state.noticeTimer) clearTimeout(state.noticeTimer)
+  state.noticeTimer = null
+  const overlay = document.getElementById('noticeOverlay')
+  if (overlay) {
+    overlay.classList.remove('is-active')
+    overlay.innerHTML = ''
+  }
+  state.noticeVisible = false
+  state.activeNoticeId = ''
+}
+
+function noticeTextMarkup(notice) {
+  const hasLink = notice.linkUrl || (notice.type === 'link' && notice.mediaUrl)
+  const link = notice.linkUrl || (notice.type === 'link' ? notice.mediaUrl : '')
+  const qr = link ? `https://api.qrserver.com/v1/create-qr-code/?size=420x420&data=${encodeURIComponent(link)}` : ''
+  return `
+    <div class="notice-stage">
+      <div class="notice-badge">LocalVision 공지 송출중</div>
+      <div class="notice-text-card fade-in">
+        <p class="notice-kicker">FULLSCREEN NOTICE</p>
+        <h1>${escapeHtml(notice.title || 'LocalVision 공지')}</h1>
+        ${notice.message ? `<p>${escapeHtml(notice.message)}</p>` : ''}
+        ${link ? `<div class="notice-link-block"><img src="${qr}" alt="공지 QR" onerror="this.style.display='none'"/><code>${escapeHtml(link)}</code></div>` : ''}
+      </div>
+    </div>`
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+async function showNoticeOverlay(notice) {
+  if (!notice) return hideNoticeOverlay()
+  const overlay = getNoticeOverlay()
+  const noticeKey = `${notice.id}:${notice.updatedAt || notice.mediaUrl || notice.linkUrl || notice.title}`
+  const isSame = state.activeNoticeId === noticeKey && state.noticeVisible
+  if (isSame) return
+
+  if (state.noticeTimer) clearTimeout(state.noticeTimer)
+  state.activeNoticeId = noticeKey
+  state.noticeVisible = true
+  setStatus(`공지 송출중: ${notice.title || notice.id}`)
+
+  if (notice.type === 'image') {
+    const item = { ...notice, url: notice.mediaUrl, cacheUrl: makeMediaFetchUrl(notice.mediaUrl), type: 'image', title: notice.title }
+    try {
+      const src = await getCachedBlobUrl(item)
+      overlay.innerHTML = `<div class="notice-stage"><div class="notice-badge">LocalVision 공지 송출중</div><img class="notice-media ${CONFIG.fit === 'contain' ? 'contain' : ''} fade-in" src="${src}" alt="${escapeHtml(notice.title)}" /></div>`
+      overlay.classList.add('is-active')
+    } catch (error) {
+      const key = `notice-image:${notice.id}`
+      if (!state.noticeErrorIds[key]) {
+        state.noticeErrorIds[key] = true
+        reportPlayerError('LV-NOTICE-MEDIA-MISSING', error?.message || '공지 이미지를 불러오지 못했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
+      }
+      hideNoticeOverlay()
+      return
+    }
+  } else if (notice.type === 'video') {
+    const item = { ...notice, url: notice.mediaUrl, cacheUrl: makeMediaFetchUrl(notice.mediaUrl), type: 'video', title: notice.title }
+    try {
+      const src = await getCachedBlobUrl(item)
+      overlay.innerHTML = `<div class="notice-stage"><div class="notice-badge">LocalVision 공지 송출중</div></div>`
+      const stage = overlay.querySelector('.notice-stage')
+      const video = document.createElement('video')
+      video.className = `notice-media ${CONFIG.fit === 'contain' ? 'contain' : ''} fade-in`
+      video.src = src
+      video.autoplay = true
+      video.muted = true
+      video.playsInline = true
+      video.controls = false
+      video.preload = 'auto'
+      video.onended = () => {
+        if (notice.priority !== 'urgent') hideNoticeOverlay()
+        else { try { video.currentTime = 0; video.play().catch(() => {}) } catch {} }
+      }
+      video.onerror = () => {
+        reportPlayerError('LV-NOTICE-PLAY-FAIL', '공지 영상 재생에 실패했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
+        hideNoticeOverlay()
+      }
+      stage.appendChild(video)
+      overlay.classList.add('is-active')
+      setTimeout(() => video.play().catch((error) => {
+        reportPlayerError('LV-NOTICE-PLAY-FAIL', error?.message || '공지 영상 자동재생에 실패했습니다.', { noticeId: notice.id, title: notice.title }, 'error')
+        hideNoticeOverlay()
+      }), 100)
+    } catch (error) {
+      reportPlayerError('LV-NOTICE-MEDIA-MISSING', error?.message || '공지 영상을 불러오지 못했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
+      hideNoticeOverlay()
+      return
+    }
+  } else {
+    overlay.innerHTML = noticeTextMarkup(notice)
+    overlay.classList.add('is-active')
+  }
+
+  if (notice.priority !== 'urgent') {
+    state.noticeTimer = setTimeout(() => {
+      // 다음 폴링에서 active notice가 여전히 있으면 다시 표시됩니다.
+      hideNoticeOverlay()
+    }, notice.durationSec * 1000)
+  }
+}
+
+async function checkNotice(reason = 'poll') {
+  if (!CONFIG.apiBase || !CONFIG.store) return
+  try {
+    const notice = await fetchActiveNotice()
+    if (notice) await showNoticeOverlay(notice)
+    else if (state.noticeVisible) hideNoticeOverlay()
+  } catch (error) {
+    reportPlayerError('LV-NOTICE-API-DOWN', error?.message || '공지 API 확인 실패', { reason }, 'warning')
+  }
+}
+
 async function syncConfig(reason = 'scheduled') {
   if (state.isSyncing) return
   state.isSyncing = true
@@ -428,7 +678,7 @@ async function syncConfig(reason = 'scheduled') {
     const nextRight = normalizeItems(data.playlists?.right)
 
     if (!nextLeft.length && !nextRight.length) {
-      throw new Error('playlist empty')
+      throw createPlayerError('LV-PLAYLIST-EMPTY', '재생 가능한 playlist가 없습니다.')
     }
 
     const changed = bundleSignature(nextLeft, nextRight) !== bundleSignature(state.leftItems, state.rightItems)
@@ -450,6 +700,8 @@ async function syncConfig(reason = 'scheduled') {
     state.leftIndex = 0
     state.rightIndex = 0
 
+    markGoodConfig()
+    hideErrorScreen()
     saveBundle(nextLeft, nextRight)
 
     startPlayback('left')
@@ -467,10 +719,19 @@ async function syncConfig(reason = 'scheduled') {
         window.setTimeout(() => startPlayback('right'), 500)
         setStatus('오프라인: 저장된 재생목록 사용')
       } else {
-        setStatus(`재생목록 확인 실패: ${error.message}`)
+        const code = error.code || 'LV-API-DOWN'
+        await reportPlayerError(code, error.message, { reason }, 'error')
+        showErrorScreen({
+          title: code === 'LV-PLAYLIST-EMPTY' ? '콘텐츠가 없습니다.' : 'CMS 연결 또는 playlist 확인 실패',
+          message: code === 'LV-PLAYLIST-EMPTY' ? 'CMS에서 콘텐츠를 업로드하거나 playlist를 확인해 주세요.' : error.message,
+          errorCode: code,
+          detail: `store=${CONFIG.store || '-'}\napiBase=${CONFIG.apiBase || '-'}`,
+        })
       }
     } else {
-      setStatus(`CMS 확인 실패, 기존 재생 유지: ${error.message}`)
+      const code = error.code || 'LV-API-DOWN'
+      await reportPlayerError(code, error.message, { reason, mode: 'keep-current-playlist' }, 'warning')
+      setStatus(`${code}: CMS 확인 실패, 기존 재생 유지`)
     }
     updateDebug()
   } finally {
@@ -512,7 +773,7 @@ async function checkRemoteCommand() {
 }
 
 async function sendHeartbeat() {
-  if (!CONFIG.deviceId) return
+  if (!CONFIG.deviceId || !CONFIG.apiBase) return
   try {
     const now = new Date().toLocaleString('ko-KR')
     await fetchJson(`${CONFIG.apiBase}/api/devices`, {
@@ -621,7 +882,9 @@ async function playItem(side, item) {
     else playImage(side, item, src, token)
   } catch (error) {
     console.warn('play failed', side, error.message)
-    setStatus(`${side} 캐시 없음, 다음 콘텐츠 대기`)
+    const code = error.code || (String(error.message || '').includes('cache') ? 'LV-CACHE-CORRUPT' : 'LV-MEDIA-MISSING')
+    reportPlayerError(code, error.message || '콘텐츠 파일을 불러오지 못했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
+    setStatus(`${code}: ${side} 콘텐츠 건너뜀`)
     scheduleNext(side, 5)
   }
 }
@@ -647,7 +910,11 @@ function playImage(side, item, src, token) {
     scheduleNext(side, item.duration || 10)
   }
 
-  img.onerror = () => scheduleNext(side, 5)
+  img.onerror = () => {
+    reportPlayerError('LV-MEDIA-MISSING', '이미지 파일을 불러오지 못했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
+    setStatus(`LV-MEDIA-MISSING: ${side} 이미지 건너뜀`)
+    scheduleNext(side, 5)
+  }
 }
 
 function playVideo(side, item, src, token) {
@@ -677,7 +944,11 @@ function playVideo(side, item, src, token) {
         started = true
         clearWatchdog(side)
       }).catch(() => {
-        setTimeout(() => video.play().catch(() => {}), 300)
+        setTimeout(() => video.play().catch((error) => {
+          reportPlayerError('LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
+          setStatus(`LV-MEDIA-PLAY-FAIL: ${side} 영상 건너뜀`)
+          next(side)
+        }), 300)
       })
     }, delay)
   }
@@ -686,7 +957,11 @@ function playVideo(side, item, src, token) {
   video.oncanplay = reveal
 
   video.onended = () => next(side)
-  video.onerror = () => scheduleNext(side, 5)
+  video.onerror = () => {
+    reportPlayerError('LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
+    setStatus(`LV-MEDIA-PLAY-FAIL: ${side} 영상 건너뜀`)
+    scheduleNext(side, 5)
+  }
 
   video.onloadedmetadata = () => {
     if (Number.isFinite(video.duration) && video.duration > 0) {
@@ -760,6 +1035,24 @@ async function boot() {
   setupDailyRestart()
   await updateCacheStatus()
 
+  const fatalIssue = bootIssues.find((issue) => issue.level === 'fatal')
+  const warnings = bootIssues.filter((issue) => issue.level === 'warning')
+  warnings.forEach((issue) => {
+    setStatus(`${issue.code}: ${issue.message}`)
+    reportPlayerError(issue.code, issue.message, { recoveredStore: CONFIG.store, recoveredApiBase: CONFIG.apiBase }, 'warning')
+  })
+  if (fatalIssue) {
+    showErrorScreen({
+      title: fatalIssue.title || '설정 정보가 없습니다.',
+      message: fatalIssue.message,
+      errorCode: fatalIssue.code,
+      detail: `현재 URL: ${location.href}`,
+    })
+    await reportPlayerError(fatalIssue.code, fatalIssue.message, { href: location.href }, 'fatal')
+    updateDebug()
+    return
+  }
+
   if (loadSavedBundle()) {
     startPlayback('left')
     window.setTimeout(() => startPlayback('right'), 500)
@@ -767,17 +1060,29 @@ async function boot() {
   }
 
   await syncConfig('startup')
+  await checkNotice('startup')
   await sendHeartbeat()
 
   setInterval(() => syncConfig('hourly'), CONFIG.refreshMs)
   if (CONFIG.commandPollMs > 0) {
     setInterval(() => checkRemoteCommand(), CONFIG.commandPollMs)
   }
+  if (CONFIG.noticePollMs > 0) {
+    setInterval(() => checkNotice('interval'), CONFIG.noticePollMs)
+  }
   setInterval(sendHeartbeat, CONFIG.heartbeatMs)
   setInterval(updateDebug, 2000)
 }
 
-window.addEventListener('error', (event) => setStatus(`오류: ${event.message}`))
-window.addEventListener('unhandledrejection', (event) => setStatus(`오류: ${event.reason?.message || event.reason}`))
+window.addEventListener('error', (event) => {
+  const message = event.message || '알 수 없는 오류가 발생했습니다.'
+  setStatus(`LV-UNKNOWN: ${message}`)
+  reportPlayerError('LV-UNKNOWN', message, { source: event.filename, line: event.lineno, column: event.colno }, 'error')
+})
+window.addEventListener('unhandledrejection', (event) => {
+  const message = event.reason?.message || String(event.reason || '알 수 없는 오류가 발생했습니다.')
+  setStatus(`LV-UNKNOWN: ${message}`)
+  reportPlayerError('LV-UNKNOWN', message, { type: 'unhandledrejection' }, 'error')
+})
 
 boot()

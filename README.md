@@ -1,3 +1,14 @@
+# LocalVision Player Core v1 · NOTICE01
+
+이 Player는 TV에 설치된 `LocalVision TV App Core v1`에서 WebView로 불러오는 웹 플레이어입니다.
+앞으로 공지, 이벤트, QR, 오류화면, 캐시 개선, 디자인 수정 같은 기능은 앱 재설치 없이 이 Player와 CMS 업데이트만으로 반영하는 구조를 기준으로 합니다.
+
+- build: `LocalVision-Core-v1-NOTICE01`
+- 주요 기능: 70:30 재생, 전체화면 공지, store/apiBase 안전장치, 오류코드 화면, CMS 오류 보고
+- 배포 방식: GitHub 업로드 → Cloudflare Pages 배포 → TV 앱이 자동으로 최신 Player URL 로드
+
+---
+
 # LocalVision Android TV App v3.0 DeviceId Fix
 
 Android TV 14 / Google TV에서 접근성 토글이 꺼지는 문제를 줄이기 위해 접근성 서비스 구조를 단순화한 안정화 버전입니다.
@@ -137,8 +148,8 @@ cd "$env:LOCALAPPDATA\Android\Sdk\platform-tools"
   2. `lv-media-bundle-meta-*` 로컬 메타 삭제
   3. `lv-playlist-bundle-*` 저장 재생목록 삭제
   4. 페이지 reload
-- 미디어 캐시 이름을 `lv-media-bundle-v1.4.4`로 변경
-- 앱 서비스워커 캐시 이름을 `lv-player-app-v1.4.4`로 변경
+- 미디어 캐시 이름을 `lv-media-bundle-core-v1-notice01`로 변경
+- 앱 서비스워커 캐시 이름을 `lv-player-app-core-v1-notice01`로 변경
 - 서비스워커를 같은 도메인 파일에 대해 network-first 방식으로 수정해 배포 후 구버전 `app.js`가 오래 남는 문제 완화
 
 ## 적용 후 테스트
@@ -148,3 +159,41 @@ cd "$env:LOCALAPPDATA\Android\Sdk\platform-tools"
 3. CMS에서 `TV 새로고침 요청` 클릭
 4. 최대 15초 안에 TV 하단 상태에 `CMS 새로고침 명령 수신: 캐시 삭제 후 재시작` 표시
 5. 캐시 삭제 후 최신 재생목록/미디어를 다시 다운로드
+
+## vSafety-01 추가 기능
+
+이번 빌드에는 실제 운영 중 TV가 멈추지 않도록 다음 안전장치를 추가했습니다.
+
+1. `store` 값이 URL에 없으면 마지막 정상 실행된 `store` 값을 자동으로 복구합니다.
+2. 마지막 정상 `store` 값도 없으면 전체 화면 오류 안내를 띄우고 `LV-STORE-MISSING` 오류코드를 표시합니다.
+3. `apiBase` 값이 URL에 없으면 마지막 정상 실행된 CMS 주소를 자동으로 복구합니다.
+4. 마지막 정상 CMS 주소도 없으면 `LV-API-MISSING` 오류코드를 표시합니다.
+5. playlist 없음, CMS 연결 실패, 미디어 파일 없음, 영상 재생 실패, 캐시 문제를 오류코드로 표시하고 CMS `/api/player-errors`로 보고합니다.
+6. 영상이나 이미지 하나가 실패해도 전체 Player가 멈추지 않고 다음 콘텐츠로 넘어갑니다.
+
+운영자가 점주에게 확인해야 할 핵심은 화면에 표시되는 `LV-...` 오류코드입니다.
+
+## Notice Safety01 - 전체화면 공지 기능
+
+이번 빌드는 CMS의 업체별 공지를 Player가 주기적으로 확인하여 70:30 화면 위에 100% 전체화면으로 표시합니다.
+
+지원 유형:
+- 이미지 공지
+- 영상 공지
+- 링크/QR 공지
+- 텍스트 공지
+
+주요 파라미터:
+- `noticePollMs`: 공지 API 확인 주기. 기본값 15000ms.
+
+Player 동작:
+1. 기존 70:30 재생 유지
+2. `/api/notices?active=1&store=...` 확인
+3. 활성 공지가 있으면 `#noticeOverlay`로 전체화면 표시
+4. 공지가 없으면 기존 70:30 화면 복귀
+5. 공지 이미지/영상 실패 시 CMS `/api/player-errors`로 오류 보고
+
+신규 오류코드:
+- `LV-NOTICE-MEDIA-MISSING`
+- `LV-NOTICE-PLAY-FAIL`
+- `LV-NOTICE-API-DOWN`

@@ -10,12 +10,17 @@
 - README.md
 
 2. 브라우저에서 아래 주소 열기
-https://localvision-player.pages.dev/version.json?v=144
+https://localvision-player.pages.dev/version.json?v=core-v1-notice01
 
 정상값:
-"build": "v1.4.4-hard-refresh-command-poll"
+"build": "LocalVision-Core-v1-NOTICE01"
 
-3. Player 디버그 패널 우측 상단이 v1.4.4로 보여야 함.
+3. store 없이 접속하면 다음 중 하나가 동작해야 함.
+- 마지막 정상 store가 있으면 자동 복구
+- 마지막 정상 store가 없으면 LV-STORE-MISSING 오류 화면 표시
 
-4. TV URL에는 기존 파라미터 그대로 두되, 선택으로 commandPoll=15000을 붙일 수 있음.
-기본값이 이미 15000ms라 붙이지 않아도 됨.
+4. apiBase 없이 접속하면 다음 중 하나가 동작해야 함.
+- 마지막 정상 apiBase가 있으면 자동 복구
+- 마지막 정상 apiBase가 없으면 LV-API-MISSING 오류 화면 표시
+
+5. Player 오류는 CMS /api/player-errors로 보고되며, CMS 단말기 상세 화면에서 확인 가능.
