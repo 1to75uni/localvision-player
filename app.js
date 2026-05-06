@@ -28,9 +28,9 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-core-v1-notice01'
-const META_KEY = 'lv-media-bundle-meta-core-v1-notice01'
-const PLAYLIST_KEY = `lv-playlist-bundle-core-v1-notice01-${CONFIG.store}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-5'
+const META_KEY = 'lv-media-bundle-meta-v1-5'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-5-${CONFIG.store}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {

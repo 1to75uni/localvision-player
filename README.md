@@ -1,9 +1,9 @@
-# LocalVision Player Core v1 · NOTICE01
+# LocalVision Player v1.5
 
-이 Player는 TV에 설치된 `LocalVision TV App Core v1`에서 WebView로 불러오는 웹 플레이어입니다.
+이 Player는 TV에 설치된 `LocalVision TV App V8.1`에서 WebView로 불러오는 웹 플레이어입니다.
 앞으로 공지, 이벤트, QR, 오류화면, 캐시 개선, 디자인 수정 같은 기능은 앱 재설치 없이 이 Player와 CMS 업데이트만으로 반영하는 구조를 기준으로 합니다.
 
-- build: `LocalVision-Core-v1-NOTICE01`
+- build: `LocalVision-Player-v1.5`
 - 주요 기능: 70:30 재생, 전체화면 공지, store/apiBase 안전장치, 오류코드 화면, CMS 오류 보고
 - 배포 방식: GitHub 업로드 → Cloudflare Pages 배포 → TV 앱이 자동으로 최신 Player URL 로드
 
