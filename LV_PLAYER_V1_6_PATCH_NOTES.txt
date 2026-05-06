@@ -6,3 +6,11 @@ LocalVision Player v1.6 Store Heartbeat Final - Patch Notes
 - 쿼리 파라미터가 붙은 URL에서도 index.html fallback 가능하도록 ignoreSearch 보완
 - 중복 errorCode 방어 정리
 - 기존 store/apiBase 오류 화면, last good 복구, hard refresh 중복 처리 구조 유지
+
+
+LocalVision Player v1.6.2 Heartbeat + Notice Polish
+- heartbeat 기본값: 300000ms
+- commandPoll 기본값: 300000ms
+- noticePollMs 기본값: 60000ms
+- 공지 반복 방지: noticeKey(id + revision/updatedAt)를 localStorage에 저장
+- 공지 표시 시작 시점에 seen 처리하여 이미지 전환/폴링 반복 표시 방지

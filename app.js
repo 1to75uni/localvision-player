@@ -12,9 +12,9 @@ const CONFIG = {
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
   refreshMs: Number(params.get('refresh') || 3600000),
-  heartbeatMs: Number(params.get('heartbeat') || 60000),
-  commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 10000),
-  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 10000),
+  heartbeatMs: Number(params.get('heartbeat') || 300000),
+  commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -523,6 +523,7 @@ function normalizeNotice(notice) {
     linkUrl: notice.linkUrl || '',
     durationSec: Math.max(5, Number(notice.durationSec || notice.duration || 15)),
     priority: notice.priority || 'normal',
+    repeatMode: notice.repeatMode || 'once',
   }
 }
 
@@ -530,6 +531,29 @@ async function fetchActiveNotice() {
   if (!CONFIG.apiBase || !CONFIG.store) return null
   const data = await fetchJson(`${CONFIG.apiBase}/api/notices?active=1&store=${encodeURIComponent(CONFIG.store)}&limit=1&t=${Date.now()}`)
   return normalizeNotice(data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+}
+
+
+function getNoticeKey(notice) {
+  if (!notice || !notice.id) return ''
+  const revision = notice.revision || notice.updatedAt || notice.mediaUrl || notice.linkUrl || notice.title || 'v1'
+  return `${notice.id}:${revision}`
+}
+
+function getSeenNoticeStorageKey(noticeKey) {
+  const safeStore = String(CONFIG.store || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_')
+  const safeKey = String(noticeKey || '').replace(/[^a-zA-Z0-9_.:-]/g, '_')
+  return `lv_seen_notice_${safeStore}_${safeKey}`
+}
+
+function hasSeenNotice(noticeKey) {
+  if (!noticeKey) return false
+  try { return localStorage.getItem(getSeenNoticeStorageKey(noticeKey)) === '1' } catch { return false }
+}
+
+function markNoticeSeen(noticeKey) {
+  if (!noticeKey) return
+  try { localStorage.setItem(getSeenNoticeStorageKey(noticeKey), '1') } catch {}
 }
 
 function getNoticeOverlay() {
@@ -581,14 +605,22 @@ function escapeHtml(value = '') {
 
 async function showNoticeOverlay(notice) {
   if (!notice) return hideNoticeOverlay()
-  const overlay = getNoticeOverlay()
-  const noticeKey = `${notice.id}:${notice.updatedAt || notice.mediaUrl || notice.linkUrl || notice.title}`
+  const noticeKey = getNoticeKey(notice)
   const isSame = state.activeNoticeId === noticeKey && state.noticeVisible
   if (isSame) return
 
+  // 핵심: 같은 공지 ID/수정버전은 한 번만 표시합니다.
+  // 콘텐츠가 다음 이미지로 넘어가거나 noticePoll이 다시 돌아도 같은 공지가 반복 표시되지 않습니다.
+  if (hasSeenNotice(noticeKey)) {
+    if (state.noticeVisible) hideNoticeOverlay()
+    return
+  }
+
+  const overlay = getNoticeOverlay()
   if (state.noticeTimer) clearTimeout(state.noticeTimer)
   state.activeNoticeId = noticeKey
   state.noticeVisible = true
+  markNoticeSeen(noticeKey)
   setStatus(`공지 송출중: ${notice.title || notice.id}`)
 
   if (notice.type === 'image') {
@@ -646,7 +678,7 @@ async function showNoticeOverlay(notice) {
 
   if (notice.priority !== 'urgent') {
     state.noticeTimer = setTimeout(() => {
-      // 다음 폴링에서 active notice가 여전히 있으면 다시 표시됩니다.
+      // 같은 noticeKey는 이미 표시 시작 시점에 저장했으므로 다음 폴링에서 다시 열리지 않습니다.
       hideNoticeOverlay()
     }, notice.durationSec * 1000)
   }
