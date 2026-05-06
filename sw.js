@@ -26,17 +26,42 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return
   if (url.pathname.includes('/api/')) return
 
+  if (url.origin === location.origin && event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(APP_CACHE).then((cache) => {
+              cache.put('./index.html', clone.clone()).catch(() => {})
+              cache.put(event.request, clone).catch(() => {})
+            })
+          }
+          return response
+        })
+        .catch(async () =>
+          (await caches.match('./index.html')) ||
+          (await caches.match('./')) ||
+          caches.match(event.request, { ignoreSearch: true })
+        )
+    )
+    return
+  }
+
   if (url.origin === location.origin) {
     event.respondWith(
       fetch(event.request, { cache: 'no-store' })
         .then((response) => {
           if (response.ok) {
             const clone = response.clone()
-            caches.open(APP_CACHE).then((cache) => cache.put(event.request, clone))
+            caches.open(APP_CACHE).then((cache) => cache.put(event.request, clone).catch(() => {}))
           }
           return response
         })
-        .catch(() => caches.match(event.request))
+        .catch(async () =>
+          (await caches.match(event.request)) ||
+          caches.match(event.request, { ignoreSearch: true })
+        )
     )
   }
 })

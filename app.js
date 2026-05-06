@@ -15,7 +15,7 @@ const CONFIG = {
   heartbeatMs: Number(params.get('heartbeat') || 180000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 15000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 15000),
-  cacheMax: Number(params.get('cacheMax') || 60),
+  cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
   restartJitterSec: Number(params.get('restartJitterSec') || 0),

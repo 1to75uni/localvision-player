@@ -10,6 +10,7 @@
 
 2. 하트비트
    - 기본값: `heartbeat=180000` = 3분
+   - 기본 캐시 상한: `cacheMax=20`
    - 전송 내용: `store`, `online`, `lastSeen`, `app`
    - CMS는 마지막 접속 10분 이내를 ONLINE으로 표시합니다.
 

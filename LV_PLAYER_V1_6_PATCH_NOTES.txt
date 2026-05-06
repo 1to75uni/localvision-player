@@ -1,0 +1,8 @@
+LocalVision Player v1.6 Store Heartbeat Final - Patch Notes
+
+적용 기준:
+- cacheMax 기본값 60 -> 20으로 통일
+- Service Worker navigation 요청 offline fallback 보완
+- 쿼리 파라미터가 붙은 URL에서도 index.html fallback 가능하도록 ignoreSearch 보완
+- 중복 errorCode 방어 정리
+- 기존 store/apiBase 오류 화면, last good 복구, hard refresh 중복 처리 구조 유지
