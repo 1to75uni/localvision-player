@@ -12,9 +12,9 @@ const CONFIG = {
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
   refreshMs: Number(params.get('refresh') || 3600000),
-  heartbeatMs: Number(params.get('heartbeat') || 180000),
-  commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 15000),
-  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 15000),
+  heartbeatMs: Number(params.get('heartbeat') || 60000),
+  commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 10000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 10000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -751,18 +751,36 @@ async function handleRemoteCommand(devices) {
 
   // CMS에서 보낸 새로고침 계열 명령은 단순 reload가 아니라
   // 미디어 캐시 + 저장된 playlist bundle을 삭제한 뒤 다시 시작합니다.
-  const hardRefreshCommands = new Set(['refresh', 'hard_refresh', 'clear_cache_refresh', 'cache_refresh'])
-  if (!hardRefreshCommands.has(command)) return false
-
   const handled = localStorage.getItem(handledCommandKey)
   const commandKey = `${command}:${commandAt}`
 
   // 이전 버전은 commandAt만 저장했으므로, 이전 저장값도 함께 중복 처리합니다.
   if (handled === commandKey || handled === commandAt) return false
 
-  localStorage.setItem(handledCommandKey, commandKey)
-  await hardRefreshFromCms(command)
-  return true
+  const hardRefreshCommands = new Set(['refresh', 'hard_refresh', 'clear_cache_refresh', 'cache_refresh'])
+  const noticeCommands = new Set(['notice_refresh', 'notice', 'reload_notice'])
+
+  if (hardRefreshCommands.has(command)) {
+    localStorage.setItem(handledCommandKey, commandKey)
+    await hardRefreshFromCms(command)
+    return true
+  }
+
+  if (noticeCommands.has(command)) {
+    localStorage.setItem(handledCommandKey, commandKey)
+    setStatus('CMS 공지 명령 수신: 공지 확인중')
+    await checkNotice('remote-command')
+    await syncConfig('notice-command')
+    return true
+  }
+
+  if (command === 'screenshot') {
+    // 실제 화면 캡처는 Android TV APP v8.2의 Native 캡처 루틴이 처리합니다.
+    // Web Player는 명령을 소모하지 않아 APP 쪽 중복 방지 로직과 충돌하지 않게 둡니다.
+    return false
+  }
+
+  return false
 }
 
 async function checkRemoteCommand() {

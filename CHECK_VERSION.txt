@@ -1,26 +1,4 @@
-업로드 후 확인할 것:
-
-1. GitHub localvision-player 저장소에 아래 파일들이 모두 같은 커밋으로 올라갔는지 확인
-- index.html
-- app.js
-- style.css
-- sw.js
-- loading.jpg
-- version.json
-- README.md
-
-2. 브라우저에서 아래 주소 열기
-https://localvision-player.pages.dev/version.json?v=1.5
-
-정상값:
-"build": "LocalVision-Player-v1.6"
-
-3. store 없이 접속하면 다음 중 하나가 동작해야 함.
-- 마지막 정상 store가 있으면 자동 복구
-- 마지막 정상 store가 없으면 LV-STORE-MISSING 오류 화면 표시
-
-4. apiBase 없이 접속하면 다음 중 하나가 동작해야 함.
-- 마지막 정상 apiBase가 있으면 자동 복구
-- 마지막 정상 apiBase가 없으면 LV-API-MISSING 오류 화면 표시
-
-5. Player 오류는 CMS /api/player-errors로 보고되며, CMS 단말기 상세 화면에서 확인 가능.
+LocalVision Player v1.6.1 command-poll
+- heartbeat 기본 60초
+- commandPoll 기본 10초
+- notice_refresh 명령 즉시 처리

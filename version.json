@@ -1,6 +1,5 @@
 {
-  "version": "1.6.0",
-  "build": "LocalVision-Player-v1.6",
-  "ts": "2026-05-06T00:00:00+09:00",
-  "heartbeat": "store-based-180000ms"
+  "build": "LocalVision-Player-v1.6.1-command-poll",
+  "version": "1.6.1",
+  "updatedAt": "2026-05-06"
 }
