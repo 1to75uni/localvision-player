@@ -12,7 +12,7 @@ const CONFIG = {
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
   refreshMs: Number(params.get('refresh') || 3600000),
-  heartbeatMs: Number(params.get('heartbeat') || 30000),
+  heartbeatMs: Number(params.get('heartbeat') || 180000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 15000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 15000),
   cacheMax: Number(params.get('cacheMax') || 60),
@@ -28,9 +28,9 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-5'
-const META_KEY = 'lv-media-bundle-meta-v1-5'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-5-${CONFIG.store}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6'
+const META_KEY = 'lv-media-bundle-meta-v1-6'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-${CONFIG.store}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -183,7 +183,7 @@ function markGoodConfig() {
 
 function updateDebug() {
   els.dbgStore.textContent = CONFIG.store
-  els.dbgDevice.textContent = CONFIG.deviceId || '미지정'
+  els.dbgDevice.textContent = CONFIG.deviceId || `store:${CONFIG.store}` || '미지정'
   els.dbgApi.textContent = CONFIG.apiBase
   els.dbgLeft.textContent = String(state.leftItems.length)
   els.dbgRight.textContent = String(state.rightItems.length)
@@ -740,8 +740,9 @@ async function syncConfig(reason = 'scheduled') {
 }
 
 async function handleRemoteCommand(devices) {
-  if (!CONFIG.deviceId) return false
-  const myDevice = devices.find((device) => device.id === CONFIG.deviceId)
+  const myDevice = CONFIG.deviceId
+    ? devices.find((device) => device.id === CONFIG.deviceId || device.store === CONFIG.store)
+    : devices.find((device) => device.store === CONFIG.store || device.id === CONFIG.store)
   if (!myDevice) return false
 
   const command = String(myDevice.lastCommand || '')
@@ -765,7 +766,7 @@ async function handleRemoteCommand(devices) {
 }
 
 async function checkRemoteCommand() {
-  if (!CONFIG.deviceId) return
+  if (!CONFIG.apiBase || !CONFIG.store) return
   try {
     const data = await fetchPlayerConfig()
     await handleRemoteCommand(data.devices || [])
@@ -773,17 +774,25 @@ async function checkRemoteCommand() {
 }
 
 async function sendHeartbeat() {
-  if (!CONFIG.deviceId || !CONFIG.apiBase) return
+  if (!CONFIG.apiBase || !CONFIG.store) return
   try {
-    const now = new Date().toLocaleString('ko-KR')
+    const now = new Date().toISOString()
     await fetchJson(`${CONFIG.apiBase}/api/devices`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: CONFIG.deviceId, online: true, lastSeen: now }),
+      body: JSON.stringify({
+        id: CONFIG.deviceId || '',
+        store: CONFIG.store,
+        online: true,
+        lastSeen: now,
+        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6',
+      }),
     })
     state.lastHeartbeat = now
     updateDebug()
-  } catch (error) {}
+  } catch (error) {
+    reportPlayerError('LV-HEARTBEAT-FAILED', error?.message || 'heartbeat failed', { store: CONFIG.store }, 'warning')
+  }
 }
 
 function getZone(side) {

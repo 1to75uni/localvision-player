@@ -13,7 +13,7 @@
 https://localvision-player.pages.dev/version.json?v=1.5
 
 정상값:
-"build": "LocalVision-Player-v1.5"
+"build": "LocalVision-Player-v1.6"
 
 3. store 없이 접속하면 다음 중 하나가 동작해야 함.
 - 마지막 정상 store가 있으면 자동 복구
