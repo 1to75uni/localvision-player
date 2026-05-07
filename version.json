@@ -1,6 +1,15 @@
 {
-  "build": "LocalVision-Player-v1.6.5-lv-id-watchdog",
-  "version": "1.6.4",
-  "updatedAt": "2026-05-07",
-  "features": ["lv001 app-config check", "error 1 skip", "error 2 auto reload", "heartbeat 300000", "commandPoll 300000", "noticePollMs 60000", "default duration 20"]
+  "build": "v1.6.6-kst-heartbeat-final",
+  "version": "v1.6.6",
+  "updatedAt": "2026-05-07T23:59:00+09:00",
+  "features": [
+    "lv001 app-config check",
+    "error 1 skip",
+    "error 2 auto reload",
+    "heartbeat 300000",
+    "commandPoll 300000",
+    "noticePollMs 60000",
+    "default duration 20"
+  ],
+  "notes": "KST time display, heartbeat retry, API network-only, recovery reload limit fallback"
 }

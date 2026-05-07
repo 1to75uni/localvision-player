@@ -30,9 +30,31 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-5'
-const META_KEY = 'lv-media-bundle-meta-v1-6-5'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-5-${CONFIG.store || CONFIG.appId}`
+
+function kstString(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  const yyyy = String(kst.getUTCFullYear()).padStart(4, '0')
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(kst.getUTCDate()).padStart(2, '0')
+  const hh = String(kst.getUTCHours()).padStart(2, '0')
+  const mi = String(kst.getUTCMinutes()).padStart(2, '0')
+  const ss = String(kst.getUTCSeconds()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+}
+
+function nowUtcIso() {
+  return new Date().toISOString()
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-6'
+const META_KEY = 'lv-media-bundle-meta-v1-6-6'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-6-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -135,8 +157,11 @@ function shouldReportError(key, minMs = 60000) {
 
 async function reportPlayerError(errorCode, message, extra = {}, level = 'error') {
   if (!CONFIG.apiBase) return
-  const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.url || ''}:${message}`
+  const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.cacheUrl || extra.sourceUrl || extra.url || ''}:${message}`
   if (!shouldReportError(key)) return
+
+  const timeUtc = nowUtcIso()
+  const timeKst = kstString(timeUtc)
 
   try {
     await fetch(`${CONFIG.apiBase}/api/player-errors`, {
@@ -149,10 +174,18 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
         errorCode,
         message,
         level,
-        time: new Date().toISOString(),
+        time: timeUtc,
+        timeUtc,
+        timeKst,
         href: location.href,
         userAgent: navigator.userAgent,
-        extra,
+        extra: {
+          ...extra,
+          timeUtc,
+          timeKst,
+          apiBase: CONFIG.apiBase,
+          playerVersion: 'v1.6.6-kst-heartbeat-final',
+        },
       }),
     })
   } catch (error) {}
@@ -183,8 +216,15 @@ async function requestRecoveryReload(errorCode, message, extra = {}) {
   }
 
   if (reloads.length >= maxReloadsPerHour) {
-    await reportPlayerError('LV-RECOVERY-LIMIT', '자동 복구 새로고침 횟수 제한에 도달하여 다음 콘텐츠로 이동합니다.', { errorCode, message, reloads, ...extra }, 'warning')
-    return false
+    const detail = `store=${CONFIG.store || '-'}\nerror=${errorCode}\n최근 1시간 reload=${reloads.length}회\n한국시간=${kstString()}`
+    showErrorScreen({
+      title: '자동 복구 새로고침 횟수 제한',
+      message: '1시간 내 Player 새로고침이 3회 이상 발생하여 무한 새로고침을 멈췄습니다. CMS에서 문제 콘텐츠와 네트워크 상태를 확인해 주세요.',
+      errorCode: 'LV-RECOVERY-LIMIT',
+      detail,
+    })
+    await reportPlayerError('LV-RECOVERY-LIMIT', '자동 복구 새로고침 횟수 제한에 도달하여 fallback 화면을 유지합니다.', { errorCode, message, reloads, ...extra }, 'fatal')
+    return true
   }
 
   reloads.push(now)
@@ -834,7 +874,7 @@ async function syncConfig(reason = 'scheduled') {
     const changed = bundleSignature(nextLeft, nextRight) !== bundleSignature(state.leftItems, state.rightItems)
 
     if (!changed && state.leftItems.length + state.rightItems.length > 0) {
-      state.lastSync = new Date().toLocaleString('ko-KR')
+      state.lastSync = kstString()
       state.bundleStatus = '변경 없음'
       setStatus('CMS 확인 완료: 변경 없음')
       updateDebug()
@@ -857,7 +897,7 @@ async function syncConfig(reason = 'scheduled') {
     startPlayback('left')
     window.setTimeout(() => startPlayback('right'), 500)
 
-    state.lastSync = new Date().toLocaleString('ko-KR')
+    state.lastSync = kstString()
     setStatus('새 재생목록 적용 완료')
     updateDebug()
   } catch (error) {
@@ -943,25 +983,36 @@ async function checkRemoteCommand() {
 
 async function sendHeartbeat() {
   if (!CONFIG.apiBase || !CONFIG.store) return
-  try {
-    const now = new Date().toISOString()
-    await fetchJson(`${CONFIG.apiBase}/api/devices`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        id: CONFIG.deviceId || '',
-        store: CONFIG.store,
-        online: true,
-        lastSeen: now,
-        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.5',
-      }),
-    })
-    state.lastHeartbeat = now
-    updateDebug()
-  } catch (error) {
-    reportPlayerError('LV-HEARTBEAT-FAILED', error?.message || 'heartbeat failed', { store: CONFIG.store }, 'warning')
+  const now = nowUtcIso()
+  const body = {
+    id: CONFIG.deviceId || '',
+    store: CONFIG.store,
+    online: true,
+    lastSeen: now,
+    lastSeenKst: kstString(now),
+    app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.6',
   }
+
+  let lastError = null
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const data = await fetchJson(`${CONFIG.apiBase}/api/devices`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      state.lastHeartbeat = data?.device?.lastSeenKst || kstString(now)
+      updateDebug()
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 3) await sleep(1000 * attempt)
+    }
+  }
+
+  reportPlayerError('LV-HEARTBEAT-FAILED', lastError?.message || 'heartbeat failed', { store: CONFIG.store, attempts: 3, lastSeenUtc: now, lastSeenKst: kstString(now) }, 'warning')
 }
+
 
 function getZone(side) {
   return side === 'left' ? els.leftZone : els.rightZone
@@ -1091,6 +1142,22 @@ function playImage(side, item, src, token) {
   }
 }
 
+function mediaDebugInfo(media, item = {}) {
+  const err = media?.error
+  return {
+    sourceUrl: item?.sourceUrl || item?.url || '',
+    cacheUrl: item?.cacheUrl || '',
+    fileName: item?.fileName || '',
+    mediaSrc: media?.currentSrc || media?.src || '',
+    errorCode: err?.code || '',
+    errorMessage: err?.message || '',
+    networkState: media?.networkState,
+    readyState: media?.readyState,
+    currentTime: media?.currentTime,
+    duration: media?.duration,
+  }
+}
+
 function playVideo(side, item, src, token) {
   const video = document.createElement('video')
   applyFit(video)
@@ -1120,7 +1187,7 @@ function playVideo(side, item, src, token) {
         clearWatchdog(side)
       }).catch(() => {
         setTimeout(() => video.play().catch((error) => {
-          handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.')
+          handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', mediaDebugInfo(video, item))
         }), 300)
       })
     }, delay)
@@ -1131,7 +1198,7 @@ function playVideo(side, item, src, token) {
 
   video.onended = () => next(side)
   video.onerror = () => {
-    handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.')
+    handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.', mediaDebugInfo(video, item))
   }
 
   video.onloadedmetadata = () => {
@@ -1141,7 +1208,7 @@ function playVideo(side, item, src, token) {
   }
 
   setWatchdog(side, () => {
-    if (!started) handlePlaybackFailure(side, item, 'LV-MEDIA-WATCHDOG', '영상 시작 시간이 초과되어 다음 콘텐츠로 이동합니다.')
+    if (!started) handlePlaybackFailure(side, item, 'LV-MEDIA-WATCHDOG', '영상 시작 시간이 초과되어 다음 콘텐츠로 이동합니다.', mediaDebugInfo(video, item))
   }, 15000)
 
   const safetyMs = Math.max(60, Number(item.duration || 0) || 1800) * 1000

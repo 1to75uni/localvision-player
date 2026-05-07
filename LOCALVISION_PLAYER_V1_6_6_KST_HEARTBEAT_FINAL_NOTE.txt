@@ -1,0 +1,32 @@
+LocalVision Player v1.6.6 KST Heartbeat Final
+
+반영 내용
+1. 한국 시간 로그 보강
+   - Player 오류 보고 시 timeUtc + timeKst 함께 전송
+   - 디버그 패널의 마지막 heartbeat/sync 시간을 KST 형식으로 표시
+
+2. Heartbeat 안정화
+   - heartbeat 실패 시 1초/2초 간격으로 총 3회 재시도
+   - 실패해도 콘텐츠 재생은 중단하지 않음
+   - CMS에는 LV-HEARTBEAT-FAILED로 요약 보고
+
+3. 영상 오류 복구 정책 유지
+   - 안준님 결정 반영: 영상 오류 2회 누적 시 해당 파일 캐시 삭제보다 Player 전체 새로고침 유지
+   - 1시간 내 전체 reload 3회 이상이면 무한 새로고침 방지: fallback 오류 화면 표시 + CMS에 fatal 보고
+
+4. 오류 로그 상세화
+   - LV-MEDIA-PLAY-FAIL/LV-MEDIA-WATCHDOG 보고 시 video.error.code, readyState, networkState, currentSrc, cacheUrl, sourceUrl 등 추가
+
+5. Service Worker
+   - /api/* 요청은 절대 캐시하지 않는 network-only 정책 유지
+   - app cache 버전 v1.6.6으로 변경하여 구버전 캐시 충돌 완화
+
+검토 결과
+- app.js, sw.js node --check 통과
+
+권장 테스트
+1. /api/health 확인
+2. /api/app-config?id=lv013 확인
+3. TV에서 10~15분 켜두고 CMS lastSeenKst/online 상태 확인
+4. 문제 mp4 2개 직접 재생 테스트
+5. Player 오류 2회 시 reload 및 1시간 3회 제한 동작 확인

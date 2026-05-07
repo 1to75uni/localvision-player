@@ -1,4 +1,4 @@
-const APP_CACHE = 'lv-player-app-v1-6-5'
+const APP_CACHE = 'lv-player-app-v1-6-6-kst-heartbeat-final'
 const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {
@@ -24,6 +24,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET') return
+  // API 요청은 절대 캐시하지 않습니다. heartbeat/app-config/playlist는 항상 최신 네트워크 값이어야 합니다.
   if (url.pathname.includes('/api/')) return
 
   if (url.origin === location.origin && event.request.mode === 'navigate') {
