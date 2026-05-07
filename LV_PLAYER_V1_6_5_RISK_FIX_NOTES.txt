@@ -1,0 +1,8 @@
+LocalVision Player v1.6.5 risk-fixed
+
+반영:
+- refresh 기본값 3600000ms(1시간) -> 480000ms(8분)
+- CMS app-config URL 변경 감지 유지
+- id=lv001 기반 Player URL 이동 유지
+- 오류 1회 스킵, 오류 2회 자동 새로고침 유지
+- cache namespace v1-6-5로 변경하여 구버전 캐시 충돌 완화

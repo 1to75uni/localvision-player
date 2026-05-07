@@ -1,4 +1,4 @@
-LocalVision Player v1.6.3 LV-ID + Watchdog 반영사항
+LocalVision Player v1.6.5 LV-ID + Watchdog 반영사항
 
 1. 기본 운영값
 - heartbeat=300000
@@ -17,4 +17,4 @@ LocalVision Player v1.6.3 LV-ID + Watchdog 반영사항
 - 무한 새로고침 방지를 위해 5분 쿨다운, 1시간 3회 제한 적용
 
 4. 캐시 안정화
-- Player 앱 캐시명과 미디어 캐시명을 v1.6.3으로 변경해 구버전 캐시 충돌을 줄였습니다.
+- Player 앱 캐시명과 미디어 캐시명을 v1.6.5으로 변경해 구버전 캐시 충돌을 줄였습니다.

@@ -1,0 +1,14 @@
+LocalVision Player v1.6.5 LV-ID + Watchdog Final
+
+반영 기준
+1. URL에 id=lv001이 있으면 CMS /api/app-config?id=lv001을 주기적으로 확인합니다.
+2. CMS에서 Player URL이 바뀌면 Player가 새 URL로 자동 이동합니다.
+3. 콘텐츠 오류 1회: 해당 콘텐츠 스킵 후 다음 콘텐츠로 이동합니다.
+4. 콘텐츠 오류 2회 누적: Player 전체 새로고침(location.reload)을 실행합니다.
+5. 새로고침 무한 루프 방지를 위해 5분 쿨다운, 시간당 최대 3회 제한을 둡니다.
+6. heartbeat=300000, commandPoll=300000, noticePollMs=60000 기준입니다.
+7. 콘텐츠 기본 재생시간은 20초 기준입니다.
+8. 캐시명은 v1.6.5로 변경하여 이전 구버전 캐시 충돌을 줄였습니다.
+
+권장 Player URL 예시
+https://localvision-player.pages.dev/?store=nogkak&id=lv001&apiBase=https%3A%2F%2Flocalvision-cms.pages.dev&heartbeat=300000&commandPoll=300000&noticePollMs=60000&cacheMax=20

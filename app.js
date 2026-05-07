@@ -12,7 +12,7 @@ const CONFIG = {
   appId: params.get('id') || params.get('appId') || '',
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
-  refreshMs: Number(params.get('refresh') || 3600000),
+  refreshMs: Number(params.get('refresh') || 480000),
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 300000),
@@ -30,9 +30,9 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-3'
-const META_KEY = 'lv-media-bundle-meta-v1-6-3'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-3-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-5'
+const META_KEY = 'lv-media-bundle-meta-v1-6-5'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-5-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -953,7 +953,7 @@ async function sendHeartbeat() {
         store: CONFIG.store,
         online: true,
         lastSeen: now,
-        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.3',
+        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.5',
       }),
     })
     state.lastHeartbeat = now
