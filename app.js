@@ -9,11 +9,13 @@ const lastGoodApiBase = String(localStorage.getItem(LAST_GOOD_API_BASE_KEY) || '
 
 const CONFIG = {
   store: rawStore || lastGoodStore,
+  appId: params.get('id') || params.get('appId') || '',
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
   refreshMs: Number(params.get('refresh') || 3600000),
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
+  appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 300000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
@@ -28,14 +30,16 @@ const CONFIG = {
   debug: params.get('debug') === '1',
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6'
-const META_KEY = 'lv-media-bundle-meta-v1-6'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-${CONFIG.store}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-3'
+const META_KEY = 'lv-media-bundle-meta-v1-6-3'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-3-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
   if (lastGoodStore) {
     bootIssues.push({ level: 'warning', code: 'LV-STORE-RECOVERED', message: `URL에 store가 없어 마지막 정상 매장 코드(${lastGoodStore})로 복구했습니다.` })
+  } else if (CONFIG.appId) {
+    bootIssues.push({ level: 'warning', code: 'LV-STORE-FROM-APP-ID', message: `URL에 store가 없어 app-config(${CONFIG.appId})에서 최신 Player URL을 확인합니다.` })
   } else {
     bootIssues.push({ level: 'fatal', code: 'LV-STORE-MISSING', title: '매장 코드가 없습니다.', message: 'CMS에서 복사한 TV용 URL에 store=매장코드를 포함해 주세요.' })
   }
@@ -73,7 +77,12 @@ const state = {
   noticeVisible: false,
   noticeTimer: null,
   noticeErrorIds: {},
+  playbackFailureCount: 0,
+  lastPlaybackFailureAt: 0,
+  recoveryReloadPending: false,
 }
+
+const RECOVERY_KEY = `lv-player-recovery-${CONFIG.store || CONFIG.appId || 'unknown'}`
 
 const els = {
   leftZone: document.getElementById('leftZone'),
@@ -149,6 +158,70 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
   } catch (error) {}
 }
 
+
+function readRecoveryMeta() {
+  try { return JSON.parse(localStorage.getItem(RECOVERY_KEY) || '{}') } catch { return {} }
+}
+
+function writeRecoveryMeta(meta) {
+  try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(meta || {})) } catch {}
+}
+
+async function requestRecoveryReload(errorCode, message, extra = {}) {
+  if (state.recoveryReloadPending) return true
+  const now = Date.now()
+  const cooldownMs = 5 * 60 * 1000
+  const windowMs = 60 * 60 * 1000
+  const maxReloadsPerHour = 3
+  const meta = readRecoveryMeta()
+  const reloads = Array.isArray(meta.reloads) ? meta.reloads.filter((ts) => now - Number(ts) < windowMs) : []
+  const lastReloadAt = Number(meta.lastReloadAt || 0)
+
+  if (lastReloadAt && now - lastReloadAt < cooldownMs) {
+    await reportPlayerError('LV-RECOVERY-COOLDOWN', '자동 복구 새로고침 쿨다운 중이라 다음 콘텐츠로 이동합니다.', { errorCode, message, ...extra }, 'warning')
+    return false
+  }
+
+  if (reloads.length >= maxReloadsPerHour) {
+    await reportPlayerError('LV-RECOVERY-LIMIT', '자동 복구 새로고침 횟수 제한에 도달하여 다음 콘텐츠로 이동합니다.', { errorCode, message, reloads, ...extra }, 'warning')
+    return false
+  }
+
+  reloads.push(now)
+  writeRecoveryMeta({ lastReloadAt: now, reloads })
+  state.recoveryReloadPending = true
+  setStatus(`오류 2회 누적: Player 자동 새로고침 (${errorCode})`)
+  await reportPlayerError('LV-AUTO-RECOVERY-RELOAD', '콘텐츠 오류 2회 누적으로 Player를 자동 새로고침합니다.', { errorCode, message, ...extra }, 'warning')
+  window.setTimeout(() => location.reload(), 800)
+  return true
+}
+
+async function handlePlaybackFailure(side, item, errorCode, message, extra = {}) {
+  const payload = { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName, ...extra }
+  await reportPlayerError(errorCode, message, payload, 'error')
+
+  const now = Date.now()
+  if (now - state.lastPlaybackFailureAt > 5 * 60 * 1000) {
+    state.playbackFailureCount = 0
+  }
+  state.lastPlaybackFailureAt = now
+  state.playbackFailureCount += 1
+
+  if (state.playbackFailureCount >= 2) {
+    const reloading = await requestRecoveryReload(errorCode, message, payload)
+    state.playbackFailureCount = 0
+    if (reloading) return
+  }
+
+  setStatus(`${errorCode}: ${side} 콘텐츠 건너뜀 (${state.playbackFailureCount}/2)`)
+  scheduleNext(side, 5)
+}
+
+function markPlaybackSuccess() {
+  state.playbackFailureCount = 0
+  state.lastPlaybackFailureAt = 0
+}
+
 function showErrorScreen({ title = 'LocalVision 오류', message = '플레이어 실행 중 문제가 발생했습니다.', errorCode = 'LV-UNKNOWN', detail = '' }) {
   let overlay = document.getElementById('playerErrorOverlay')
   if (!overlay) {
@@ -182,7 +255,7 @@ function markGoodConfig() {
 }
 
 function updateDebug() {
-  els.dbgStore.textContent = CONFIG.store
+  els.dbgStore.textContent = CONFIG.store || CONFIG.appId || '-' 
   els.dbgDevice.textContent = CONFIG.deviceId || `store:${CONFIG.store}` || '미지정'
   els.dbgApi.textContent = CONFIG.apiBase
   els.dbgLeft.textContent = String(state.leftItems.length)
@@ -207,6 +280,51 @@ async function fetchJson(url, options = {}) {
   const data = await response.json().catch(() => ({}))
   if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`)
   return data
+}
+
+
+async function fetchAppConfig() {
+  if (!CONFIG.apiBase || !CONFIG.appId) return null
+  return fetchJson(`${CONFIG.apiBase}/api/app-config?id=${encodeURIComponent(CONFIG.appId)}&t=${Date.now()}`)
+}
+
+function comparableUrl(value) {
+  try {
+    const url = new URL(value, location.href)
+    url.hash = ''
+    url.searchParams.delete('t')
+    return url.toString()
+  } catch {
+    return String(value || '').trim()
+  }
+}
+
+async function checkAppConfig(reason = 'poll') {
+  if (!CONFIG.apiBase || !CONFIG.appId) return false
+  try {
+    const data = await fetchAppConfig()
+    if (!data?.playerUrl) return false
+    if (data.active === false) {
+      showErrorScreen({
+        title: '이 TV는 CMS에서 비활성 상태입니다.',
+        message: 'CMS의 업체 ID 상태를 사용중/운영중으로 변경하면 다시 재생됩니다.',
+        errorCode: 'LV-APP-ID-INACTIVE',
+        detail: `id=${CONFIG.appId}`,
+      })
+      return true
+    }
+    const nextUrl = comparableUrl(data.playerUrl)
+    const currentUrl = comparableUrl(location.href)
+    if (nextUrl && nextUrl !== currentUrl) {
+      setStatus(`app-config URL 변경 감지: ${CONFIG.appId}`)
+      await reportPlayerError('LV-APP-CONFIG-URL-CHANGE', 'CMS app-config의 Player URL 변경을 감지해 이동합니다.', { reason, appId: CONFIG.appId, nextUrl: data.playerUrl }, 'warning')
+      window.setTimeout(() => location.replace(data.playerUrl), 300)
+      return true
+    }
+  } catch (error) {
+    await reportPlayerError('LV-APP-CONFIG-FAILED', error?.message || 'app-config 확인 실패', { reason, appId: CONFIG.appId }, 'warning')
+  }
+  return false
 }
 
 async function fetchPlayerConfig() {
@@ -254,7 +372,7 @@ function normalizeItems(items) {
     .filter((item) => item && item.status === '사용중')
     .map((item) => ({
       ...item,
-      duration: Number(item.duration || 10),
+      duration: Number(item.duration || 20),
       sourceUrl: item.url || '',
       url: item.url || '',
       cacheUrl: makeMediaFetchUrl(item.url || ''),
@@ -835,7 +953,7 @@ async function sendHeartbeat() {
         store: CONFIG.store,
         online: true,
         lastSeen: now,
-        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6',
+        app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.3',
       }),
     })
     state.lastHeartbeat = now
@@ -942,9 +1060,7 @@ async function playItem(side, item) {
   } catch (error) {
     console.warn('play failed', side, error.message)
     const code = error.code || (String(error.message || '').includes('cache') ? 'LV-CACHE-CORRUPT' : 'LV-MEDIA-MISSING')
-    reportPlayerError(code, error.message || '콘텐츠 파일을 불러오지 못했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
-    setStatus(`${code}: ${side} 콘텐츠 건너뜀`)
-    scheduleNext(side, 5)
+    handlePlaybackFailure(side, item, code, error.message || '콘텐츠 파일을 불러오지 못했습니다.')
   }
 }
 
@@ -966,13 +1082,12 @@ function playImage(side, item, src, token) {
   img.onload = () => {
     if (token !== state.playToken[side]) return
     swapWhenReady(side, img, token)
-    scheduleNext(side, item.duration || 10)
+    markPlaybackSuccess()
+    scheduleNext(side, item.duration || 20)
   }
 
   img.onerror = () => {
-    reportPlayerError('LV-MEDIA-MISSING', '이미지 파일을 불러오지 못했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
-    setStatus(`LV-MEDIA-MISSING: ${side} 이미지 건너뜀`)
-    scheduleNext(side, 5)
+    handlePlaybackFailure(side, item, 'LV-MEDIA-MISSING', '이미지 파일을 불러오지 못했습니다.')
   }
 }
 
@@ -1001,12 +1116,11 @@ function playVideo(side, item, src, token) {
     setTimeout(() => {
       video.play().then(() => {
         started = true
+        markPlaybackSuccess()
         clearWatchdog(side)
       }).catch(() => {
         setTimeout(() => video.play().catch((error) => {
-          reportPlayerError('LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
-          setStatus(`LV-MEDIA-PLAY-FAIL: ${side} 영상 건너뜀`)
-          next(side)
+          handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.')
         }), 300)
       })
     }, delay)
@@ -1017,9 +1131,7 @@ function playVideo(side, item, src, token) {
 
   video.onended = () => next(side)
   video.onerror = () => {
-    reportPlayerError('LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.', { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName }, 'error')
-    setStatus(`LV-MEDIA-PLAY-FAIL: ${side} 영상 건너뜀`)
-    scheduleNext(side, 5)
+    handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.')
   }
 
   video.onloadedmetadata = () => {
@@ -1029,7 +1141,7 @@ function playVideo(side, item, src, token) {
   }
 
   setWatchdog(side, () => {
-    if (!started) next(side)
+    if (!started) handlePlaybackFailure(side, item, 'LV-MEDIA-WATCHDOG', '영상 시작 시간이 초과되어 다음 콘텐츠로 이동합니다.')
   }, 15000)
 
   const safetyMs = Math.max(60, Number(item.duration || 0) || 1800) * 1000
@@ -1039,7 +1151,7 @@ function playVideo(side, item, src, token) {
 }
 
 function scheduleNext(side, durationSeconds) {
-  setSideTimer(side, () => next(side), Math.max(3, Number(durationSeconds || 10)) * 1000)
+  setSideTimer(side, () => next(side), Math.max(3, Number(durationSeconds || 20)) * 1000)
 }
 
 function next(side) {
@@ -1094,6 +1206,9 @@ async function boot() {
   setupDailyRestart()
   await updateCacheStatus()
 
+  const redirectedByAppConfig = await checkAppConfig('startup')
+  if (redirectedByAppConfig) return
+
   const fatalIssue = bootIssues.find((issue) => issue.level === 'fatal')
   const warnings = bootIssues.filter((issue) => issue.level === 'warning')
   warnings.forEach((issue) => {
@@ -1125,6 +1240,9 @@ async function boot() {
   setInterval(() => syncConfig('hourly'), CONFIG.refreshMs)
   if (CONFIG.commandPollMs > 0) {
     setInterval(() => checkRemoteCommand(), CONFIG.commandPollMs)
+  }
+  if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
+    setInterval(() => checkAppConfig('interval'), CONFIG.appConfigPollMs)
   }
   if (CONFIG.noticePollMs > 0) {
     setInterval(() => checkNotice('interval'), CONFIG.noticePollMs)

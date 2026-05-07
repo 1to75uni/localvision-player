@@ -1,13 +1,15 @@
-# LocalVision Player v1.6.2 Heartbeat + Notice Polish
+# LocalVision Player v1.6.3 LV-ID + Watchdog
 
-## 확정 운영 도메인
-- Player: https://localvision-player.pages.dev
-- CMS/API: https://localvision-cms.pages.dev
+## 운영 기본값
+- heartbeat: `300000`
+- commandPoll: `300000`
+- noticePollMs: `60000`
+- 기본 콘텐츠 재생시간: `20초`
 
-## 변경점
-- heartbeat 기본값을 60초에서 300초로 변경했습니다.
-- commandPoll 기본값을 10초에서 300초로 변경했습니다.
-- noticePollMs 기본값을 60초로 변경했습니다.
-- 같은 공지는 `notice.id + updatedAt/revision` 기준으로 1회만 표시합니다.
-- 공지 표시 시작 즉시 localStorage에 seen 처리하여, 이미지/영상 전환 또는 다음 공지 폴링 때 반복 표시되지 않게 했습니다.
-- screenshot 명령은 기존처럼 Android TV APP Native 캡처 루틴에서 처리하도록 Web Player에서는 소모하지 않습니다.
+## 핵심 변경
+- `id=lv001` / `appId=lv001` 파라미터를 인식합니다.
+- `apiBase`가 있을 경우 `/api/app-config?id=lv001`을 5분마다 확인합니다.
+- CMS의 app-config Player URL이 바뀌면 Player가 자동으로 새 URL로 이동합니다.
+- 콘텐츠 재생 오류 1회는 해당 콘텐츠 스킵, 2회 누적은 Player 전체 새로고침을 수행합니다.
+- 자동 새로고침 루프 방지를 위해 5분 쿨다운과 1시간 3회 제한을 적용했습니다.
+- 기존 캐시명과 SW 캐시명을 v1.6.3으로 올려 구버전 캐시 충돌을 줄였습니다.

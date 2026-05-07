@@ -1,0 +1,20 @@
+LocalVision Player v1.6.3 LV-ID + Watchdog 반영사항
+
+1. 기본 운영값
+- heartbeat=300000
+- commandPoll=300000
+- noticePollMs=60000
+- 기본 콘텐츠 재생시간 fallback=20초
+
+2. app-config 확인
+- Player URL에 id=lv001 또는 appId=lv001이 있으면 /api/app-config?id=lv001을 확인합니다.
+- CMS에서 Player URL이 변경되면 자동으로 새 URL로 이동합니다.
+- appConfigPoll/configPoll 기본값은 300000ms입니다.
+
+3. 콘텐츠 오류 자동 복구
+- 재생 오류 1회: 해당 콘텐츠 스킵 후 다음 콘텐츠로 이동
+- 재생 오류 2회 누적: Player 전체 새로고침(location.reload)
+- 무한 새로고침 방지를 위해 5분 쿨다운, 1시간 3회 제한 적용
+
+4. 캐시 안정화
+- Player 앱 캐시명과 미디어 캐시명을 v1.6.3으로 변경해 구버전 캐시 충돌을 줄였습니다.

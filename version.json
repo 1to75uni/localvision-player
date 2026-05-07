@@ -1,5 +1,6 @@
 {
-  "build": "LocalVision-Player-v1.6.2-heartbeat-notice",
-  "version": "1.6.2",
-  "updatedAt": "2026-05-07"
+  "build": "LocalVision-Player-v1.6.3-lv-id-watchdog",
+  "version": "1.6.3",
+  "updatedAt": "2026-05-07",
+  "features": ["lv001 app-config check", "error 1 skip", "error 2 auto reload", "heartbeat 300000", "commandPoll 300000", "noticePollMs 60000", "default duration 20"]
 }
