@@ -55,9 +55,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-7-0'
-const META_KEY = 'lv-media-bundle-meta-v1-7-0'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-0-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-7-1'
+const META_KEY = 'lv-media-bundle-meta-v1-7-1'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-1-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -191,7 +191,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.7.0-offline-first',
+          playerVersion: 'v1.7.1-api-diet',
         },
       }),
     })
@@ -407,10 +407,15 @@ async function checkAppConfig(reason = 'poll') {
   return false
 }
 
+function playerQuery(extra = {}) {
+  const qs = new URLSearchParams({ store: CONFIG.store, t: String(Date.now()), ...extra })
+  if (CONFIG.appId) qs.set('id', CONFIG.appId)
+  return qs
+}
+
 async function fetchPlayerState(reason = 'poll') {
   if (!CONFIG.apiBase || !CONFIG.store) throw new Error('apiBase/store missing')
-  const qs = new URLSearchParams({ store: CONFIG.store, t: String(Date.now()) })
-  if (CONFIG.appId) qs.set('id', CONFIG.appId)
+  const qs = playerQuery({ reason })
   try {
     return await fetchJson(`${CONFIG.apiBase}/api/player-state?${qs.toString()}`)
   } catch (error) {
@@ -419,6 +424,12 @@ async function fetchPlayerState(reason = 'poll') {
     fallback.endpoint = '/api/player-config-fallback'
     return fallback
   }
+}
+
+async function fetchLiteEndpoint(path, reason = 'poll') {
+  if (!CONFIG.apiBase || !CONFIG.store) throw new Error('apiBase/store missing')
+  const qs = playerQuery({ reason })
+  return fetchJson(`${CONFIG.apiBase}${path}?${qs.toString()}`, { attempts: 2 })
 }
 
 async function fetchPlayerConfig() {
@@ -815,8 +826,14 @@ function normalizeNotice(notice) {
 
 async function fetchActiveNotice() {
   if (!CONFIG.apiBase || !CONFIG.store) return null
-  const data = await fetchPlayerState('notice')
-  return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+  try {
+    const data = await fetchLiteEndpoint('/api/notice-active', 'notice')
+    return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+  } catch (error) {
+    // 새 경량 API가 아직 배포 전이면 기존 player-state로 호환합니다.
+    const data = await fetchPlayerState('notice-fallback')
+    return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+  }
 }
 
 
@@ -1046,8 +1063,7 @@ async function syncConfig(reason = 'scheduled') {
 
     const commandHandled = await handleRemoteCommand(data.devices || [], data.command)
     if (commandHandled) return
-    if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), reason)
-    else if (state.noticeVisible) hideNoticeOverlay()
+    // 공지 확인은 /api/notice-active 경량 API가 담당합니다.
 
     const resolved = await resolvePlaylistsFromConfig(data)
     const nextLeft = normalizeItems(resolved.left)
@@ -1156,7 +1172,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.0', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.1', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1186,10 +1202,15 @@ async function handleRemoteCommand(devices, commandFromState = null) {
 async function checkRemoteCommand() {
   if (!CONFIG.apiBase || !CONFIG.store) return
   try {
-    const data = await fetchPlayerState('command')
-    await handleRemoteCommand(data.devices || [], data.command)
-    if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), 'command')
-  } catch (error) {}
+    const data = await fetchLiteEndpoint('/api/player-command', 'command')
+    await handleRemoteCommand(data.device ? [data.device] : (data.devices || []), data.command)
+  } catch (error) {
+    try {
+      const data = await fetchPlayerState('command-fallback')
+      await handleRemoteCommand(data.devices || [], data.command)
+      if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), 'command')
+    } catch (_) {}
+  }
 }
 
 async function sendHeartbeat() {
@@ -1205,7 +1226,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.7.0-offline-first',
+    playerVersion: 'v1.7.1-api-diet',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1218,12 +1239,23 @@ async function sendHeartbeat() {
   let lastError = null
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const data = await fetchJson(`${CONFIG.apiBase}/api/player-state`, {
-        method: 'POST',
-        attempts: 1,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      let data
+      try {
+        data = await fetchJson(`${CONFIG.apiBase}/api/heartbeat`, {
+          method: 'POST',
+          attempts: 1,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      } catch (heartbeatError) {
+        // 구버전 CMS 호환: /api/heartbeat가 없으면 기존 player-state POST로 1회 fallback합니다.
+        data = await fetchJson(`${CONFIG.apiBase}/api/player-state`, {
+          method: 'POST',
+          attempts: 1,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      }
       state.lastHeartbeat = data?.device?.lastSeenKst || data?.updatedAtKst || kstString(now)
       updateDebug()
       return

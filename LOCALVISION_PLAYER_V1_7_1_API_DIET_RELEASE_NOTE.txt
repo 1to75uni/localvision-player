@@ -1,0 +1,30 @@
+LocalVision Player v1.7.1 API DIET
+
+목표:
+- 영상 재생은 유지하면서 CMS 호출을 가볍게 분리
+- heartbeat/공지/명령이 무거운 /api/player-state에 묶이지 않도록 개선
+
+핵심 변경:
+1. heartbeat 전송 대상 변경
+   - 기존: POST /api/player-state
+   - 변경: POST /api/heartbeat
+   - 구버전 CMS 호환을 위해 실패 시 /api/player-state로 fallback
+
+2. 공지 확인 대상 변경
+   - 기존: GET /api/player-state
+   - 변경: GET /api/notice-active
+   - 구버전 CMS 호환 fallback 유지
+
+3. 명령 확인 대상 변경
+   - 기존: GET /api/player-state
+   - 변경: GET /api/player-command
+   - 구버전 CMS 호환 fallback 유지
+
+4. 재생목록 확인은 기존 /api/player-state를 유지하되, 주기는 480000ms/900000ms 파라미터 기준으로 운영
+
+운영 권장 URL 파라미터:
+- heartbeat=300000
+- commandPoll=300000
+- noticePollMs=60000
+- refresh=480000
+- cacheMax=20

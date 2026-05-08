@@ -18,7 +18,7 @@ Copy-Item "$src\*" $work -Recurse -Force
 Write-Host "[5/6] commit"
 Set-Location $work
 git add -A
-git commit -m "Deploy Player v1.7.0 offline first"
+git commit -m "Deploy Player v1.7.1 offline first"
 
 Write-Host "[6/6] push"
 git push origin main

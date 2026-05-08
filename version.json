@@ -1,13 +1,13 @@
 {
-  "build": "v1.7.0-offline-first",
-  "version": "1.7.0",
+  "build": "v1.7.1-api-diet",
+  "version": "1.7.1",
   "updatedAt": "2026-05-08",
   "highlights": [
-    "Playlist snapshot + offline-first playback",
+    "Playlist snapshot + api-diet playback",
     "Uses last successful playlist immediately on boot",
     "Fetches R2/CMS playlist snapshots when available and falls back to API payload",
     "CMS/notice/heartbeat failures no longer stop playback",
     "Media play failures retry once, then skip only the failed file for the current session"
   ],
-  "notes": "Stable architecture build for CMS v1.8.0. Designed to reduce D1/R2 live dependency during TV playback."
+  "notes": "Stable architecture build for CMS v1.8.1. Designed to reduce D1/R2 live dependency during TV playback."
 }
