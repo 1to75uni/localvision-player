@@ -1,0 +1,13 @@
+LocalVision Player v1.7.0 OFFLINE-FIRST
+
+핵심 변경:
+1. 부팅 즉시 마지막 정상 playlist를 먼저 재생.
+2. CMS/API 실패 시 오류화면으로 고정하지 않고 기존 재생 유지.
+3. playlist snapshot URL이 있으면 우선 확인하고, 실패하면 API payload/로컬 저장 playlist로 fallback.
+4. notice/heartbeat 실패는 메인 재생과 분리.
+5. 영상/이미지 실패 시 1회 재시도, 2회 실패 시 해당 파일만 이번 세션에서 스킵.
+6. 캐시 파일 손상 가능성에 대비해 실패 파일의 media cache를 삭제 후 재시도.
+7. 서비스워커/미디어 캐시 버전 v1.7.0으로 갱신.
+
+권장 CMS 조합:
+- CMS v1.8.0 STABLE ARCHITECTURE

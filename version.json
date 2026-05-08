@@ -1,13 +1,13 @@
 {
-  "build": "v1.6.10-cors-safe-fetch",
-  "version": "1.6.10",
+  "build": "v1.7.0-offline-first",
+  "version": "1.7.0",
   "updatedAt": "2026-05-08",
   "highlights": [
-    "Removed custom cache-control request header from CMS API fetch to avoid CORS preflight failures",
-    "Uses cache: no-store plus timestamp query cache busters instead of custom request headers",
-    "Error screen now includes endpoint, URL, HTTP status, and boot step for diagnosis",
-    "Service Worker cache name bumped to v1.6.10 to clear older player app cache",
-    "Compatible with CMS v1.7.8 CORS SAFE + UI POLISH and APP v9.2 Minimal Shell"
+    "Playlist snapshot + offline-first playback",
+    "Uses last successful playlist immediately on boot",
+    "Fetches R2/CMS playlist snapshots when available and falls back to API payload",
+    "CMS/notice/heartbeat failures no longer stop playback",
+    "Media play failures retry once, then skip only the failed file for the current session"
   ],
-  "notes": "CORS-safe fetch build for cross-domain Player -> CMS API calls."
+  "notes": "Stable architecture build for CMS v1.8.0. Designed to reduce D1/R2 live dependency during TV playback."
 }

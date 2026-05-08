@@ -1,4 +1,4 @@
-const APP_CACHE = 'lv-player-app-v1-6-10-cors-safe-fetch'
+const APP_CACHE = 'lv-player-app-v1-7-0-offline-first'
 const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {

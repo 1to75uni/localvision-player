@@ -12,12 +12,12 @@ const CONFIG = {
   appId: params.get('id') || params.get('appId') || '',
   deviceId: params.get('deviceId') || '',
   apiBase: rawApiBase || lastGoodApiBase,
-  refreshMs: Number(params.get('refresh') || 480000),
+  refreshMs: Number(params.get('refresh') || 900000),
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
-  playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('commandPoll') || params.get('commandPollMs') || 300000),
+  playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -55,9 +55,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-9'
-const META_KEY = 'lv-media-bundle-meta-v1-6-9'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-9-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-7-0'
+const META_KEY = 'lv-media-bundle-meta-v1-7-0'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-0-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -106,6 +106,8 @@ const state = {
   lastPlaybackFailureAt: 0,
   recoveryReloadPending: false,
   intervalsStarted: false,
+  mediaFailures: {},
+  sessionBlacklist: {},
 }
 
 
@@ -189,7 +191,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.6.10-cors-safe-fetch',
+          playerVersion: 'v1.7.0-offline-first',
         },
       }),
     })
@@ -245,21 +247,24 @@ async function handlePlaybackFailure(side, item, errorCode, message, extra = {})
   const payload = { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName, ...extra }
   await reportPlayerError(errorCode, message, payload, 'error')
 
-  const now = Date.now()
-  if (now - state.lastPlaybackFailureAt > 5 * 60 * 1000) {
-    state.playbackFailureCount = 0
-  }
-  state.lastPlaybackFailureAt = now
-  state.playbackFailureCount += 1
+  const key = mediaKeyOf(item)
+  const count = key ? Number(state.mediaFailures[key] || 0) + 1 : 1
+  if (key) state.mediaFailures[key] = count
 
-  if (state.playbackFailureCount >= 2) {
-    const reloading = await requestRecoveryReload(errorCode, message, payload)
-    state.playbackFailureCount = 0
-    if (reloading) return
+  const msg = String(message || '')
+  const isPowerPause = msg.includes('paused to save power') || msg.includes('interrupted') || msg.includes('play() request')
+
+  if (count === 1) {
+    if (!isPowerPause) await deleteMediaCacheForItem(item)
+    setStatus(`${errorCode}: ${side} 재시도 1회 (${item?.fileName || item?.title || ''})`)
+    setSideTimer(side, () => playItem(side, item), isPowerPause ? 1200 : 800)
+    return
   }
 
-  setStatus(`${errorCode}: ${side} 콘텐츠 건너뜀 (${state.playbackFailureCount}/2)`)
-  scheduleNext(side, 5)
+  if (key) state.sessionBlacklist[key] = Date.now()
+  setStatus(`${errorCode}: ${side} 콘텐츠 임시 제외 후 다음 재생`)
+  await reportPlayerError('LV-MEDIA-SESSION-SKIP', '반복 실패 콘텐츠를 이번 세션에서 임시 제외했습니다.', { ...payload, failCount: count, blacklisted: true }, 'warning')
+  scheduleNext(side, 2)
 }
 
 function markPlaybackSuccess() {
@@ -418,6 +423,80 @@ async function fetchPlayerState(reason = 'poll') {
 
 async function fetchPlayerConfig() {
   return fetchPlayerState('compat')
+}
+
+
+function extractPlaylistItems(snapshot, side) {
+  if (!snapshot) return []
+  if (Array.isArray(snapshot?.playlists?.[side])) return snapshot.playlists[side]
+  if (Array.isArray(snapshot?.items) && (snapshot.side === side || !snapshot.side)) return snapshot.items
+  if (Array.isArray(snapshot?.[side])) return snapshot[side]
+  return []
+}
+
+async function fetchSnapshot(url, label = 'snapshot') {
+  if (!url) return null
+  try {
+    return await fetchJson(`${url}${url.includes('?') ? '&' : '?'}_lvts=${Date.now()}`, { attempts: 2 })
+  } catch (error) {
+    await reportPlayerError('LV-SNAPSHOT-FETCH-FAILED', error?.message || 'playlist snapshot fetch failed', { label, url }, 'warning')
+    return null
+  }
+}
+
+async function resolvePlaylistsFromConfig(data) {
+  let left = Array.isArray(data?.playlists?.left) ? data.playlists.left : []
+  let right = Array.isArray(data?.playlists?.right) ? data.playlists.right : []
+
+  const urls = data?.playlistUrls || {}
+  const bundleUrl = data?.playlistUrl || urls.bundle || ''
+
+  // snapshot URL이 있으면 이것을 우선 사용합니다. 단, 실패하면 API payload의 playlists로 fallback합니다.
+  const bundle = await fetchSnapshot(bundleUrl, 'bundle')
+  if (bundle) {
+    const bLeft = extractPlaylistItems(bundle, 'left')
+    const bRight = extractPlaylistItems(bundle, 'right')
+    if (bLeft.length) left = bLeft
+    if (bRight.length) right = bRight
+  }
+
+  // 공통 right는 여러 매장이 공유하므로 bundle이 있어도 별도 right snapshot이 있으면 우선 적용합니다.
+  // left도 별도 snapshot이 있으면 적용합니다. 둘 중 하나가 실패해도 API payload/bundle로 fallback합니다.
+  if (urls.left || urls.right) {
+    const [leftDoc, rightDoc] = await Promise.all([
+      urls.left ? fetchSnapshot(urls.left, 'left') : Promise.resolve(null),
+      urls.right ? fetchSnapshot(urls.right, 'right') : Promise.resolve(null),
+    ])
+    const sLeft = extractPlaylistItems(leftDoc, 'left')
+    const sRight = extractPlaylistItems(rightDoc, 'right')
+    if (sLeft.length) left = sLeft
+    if (sRight.length) right = sRight
+  }
+
+  return { left, right }
+}
+
+function mediaKeyOf(item = {}) {
+  return String(item.cacheKey || item.cacheUrl || item.sourceUrl || item.url || item.fileName || item.id || '')
+}
+
+function isBlacklisted(item = {}) {
+  const key = mediaKeyOf(item)
+  return Boolean(key && state.sessionBlacklist[key])
+}
+
+async function deleteMediaCacheForItem(item = {}) {
+  try {
+    const key = item.cacheUrl || item.cacheKey || item.url
+    if (!key) return false
+    const cache = await getMediaCache()
+    await cache.delete(key)
+    const meta = loadMeta()
+    delete meta[key]
+    saveMeta(meta)
+    await updateCacheStatus()
+    return true
+  } catch { return false }
 }
 
 function guessType(value) {
@@ -970,8 +1049,9 @@ async function syncConfig(reason = 'scheduled') {
     if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), reason)
     else if (state.noticeVisible) hideNoticeOverlay()
 
-    const nextLeft = normalizeItems(data.playlists?.left)
-    const nextRight = normalizeItems(data.playlists?.right)
+    const resolved = await resolvePlaylistsFromConfig(data)
+    const nextLeft = normalizeItems(resolved.left)
+    const nextRight = normalizeItems(resolved.right)
 
     if (!nextLeft.length && !nextRight.length) {
       throw createPlayerError('LV-PLAYLIST-EMPTY', '재생 가능한 playlist가 없습니다.')
@@ -1076,7 +1156,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.10', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.0', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1125,7 +1205,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.6.10-cors-safe-fetch',
+    playerVersion: 'v1.7.0-offline-first',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1232,6 +1312,7 @@ function startPlayback(side) {
 
 async function playItem(side, item) {
   if (!item?.url) return scheduleNext(side, 5)
+  if (isBlacklisted(item)) return scheduleNext(side, 1)
 
   state.playToken[side] += 1
   const token = state.playToken[side]
@@ -1368,7 +1449,22 @@ function next(side) {
   clearWatchdog(side)
   const items = getItems(side)
   if (!items.length) return
-  const nextIndex = (getIndex(side) + 1) % items.length
+  let nextIndex = (getIndex(side) + 1) % items.length
+  let found = false
+  for (let i = 0; i < items.length; i += 1) {
+    const idx = (nextIndex + i) % items.length
+    if (!isBlacklisted(items[idx])) {
+      nextIndex = idx
+      found = true
+      break
+    }
+  }
+  if (!found) {
+    // 모든 파일이 이번 세션에서 제외되면 무한 빈 화면을 막기 위해 세션 blacklist를 1회 초기화합니다.
+    state.sessionBlacklist = {}
+    nextIndex = (getIndex(side) + 1) % items.length
+    setStatus(`${side} 세션 제외 목록 초기화 후 재시도`)
+  }
   setIndex(side, nextIndex)
   playItem(side, items[nextIndex])
 }
