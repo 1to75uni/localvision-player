@@ -1,0 +1,15 @@
+LocalVision Player v1.6.7 Stable Player State Release
+
+핵심 변경:
+1. Player 버전 표기 v1.6.7로 통일.
+2. /api/player-state 우선 사용: playlist, notice, command를 5분마다 한 번에 확인.
+3. 기존 CMS 호환을 위해 /api/player-state 실패 시 /api/player-config fallback 유지.
+4. 기본 운영값 변경: playerStatePollMs=300000, appConfigPollMs=1800000, noticePollMs=300000.
+5. 공지 repeatMode 지원 강화: once, always, daily, interval, command.
+6. video 공지 전체화면 재생 강화.
+7. 전체화면 공지 재생 중 좌/우 메인 콘텐츠 video pause, 공지 종료 후 resume.
+8. 기존 오류 1회 스킵 / 2회 자동 새로고침 / 1시간 3회 제한 유지.
+
+주의:
+- YouTube/Instagram/NaverTV 같은 웹페이지 링크는 video 태그로 직접 재생되지 않을 수 있습니다.
+- 안정 운영용 영상 공지는 직접 재생 가능한 mp4 URL 또는 R2 업로드 mp4를 사용하세요.

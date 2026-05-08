@@ -1,15 +1,18 @@
 {
-  "build": "v1.6.6-kst-heartbeat-final",
-  "version": "v1.6.6",
-  "updatedAt": "2026-05-07T23:59:00+09:00",
+  "build": "v1.6.7-stable-player-state",
+  "version": "v1.6.7",
+  "updatedAt": "2026-05-08T09:00:00+09:00",
   "features": [
     "lv001 app-config check",
+    "/api/player-state unified polling",
     "error 1 skip",
     "error 2 auto reload",
     "heartbeat 300000",
-    "commandPoll 300000",
-    "noticePollMs 60000",
+    "playerStatePoll 300000",
+    "noticePollMs 300000",
+    "appConfigPoll 1800000",
+    "notice video fullscreen pause/resume",
     "default duration 20"
   ],
-  "notes": "KST time display, heartbeat retry, API network-only, recovery reload limit fallback"
+  "notes": "Stable player-state build: KST notice timing, fullscreen video notice, unified polling, heartbeat retry, recovery reload limit fallback."
 }

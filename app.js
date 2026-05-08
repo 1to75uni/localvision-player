@@ -15,8 +15,9 @@ const CONFIG = {
   refreshMs: Number(params.get('refresh') || 480000),
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
-  appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 300000),
-  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
+  appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 300000),
+  playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('commandPoll') || params.get('commandPollMs') || 300000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -52,9 +53,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-6'
-const META_KEY = 'lv-media-bundle-meta-v1-6-6'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-6-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-7'
+const META_KEY = 'lv-media-bundle-meta-v1-6-7'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-7-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -184,7 +185,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.6.6-kst-heartbeat-final',
+          playerVersion: 'v1.6.7-stable-player-state',
         },
       }),
     })
@@ -367,8 +368,22 @@ async function checkAppConfig(reason = 'poll') {
   return false
 }
 
+async function fetchPlayerState(reason = 'poll') {
+  if (!CONFIG.apiBase || !CONFIG.store) throw new Error('apiBase/store missing')
+  const qs = new URLSearchParams({ store: CONFIG.store, t: String(Date.now()) })
+  if (CONFIG.appId) qs.set('id', CONFIG.appId)
+  try {
+    return await fetchJson(`${CONFIG.apiBase}/api/player-state?${qs.toString()}`)
+  } catch (error) {
+    // 이전 CMS와의 호환을 위해 player-state가 없으면 기존 player-config로 fallback합니다.
+    const fallback = await fetchJson(`${CONFIG.apiBase}/api/player-config?store=${encodeURIComponent(CONFIG.store)}&t=${Date.now()}`)
+    fallback.endpoint = '/api/player-config-fallback'
+    return fallback
+  }
+}
+
 async function fetchPlayerConfig() {
-  return fetchJson(`${CONFIG.apiBase}/api/player-config?store=${encodeURIComponent(CONFIG.store)}&t=${Date.now()}`)
+  return fetchPlayerState('compat')
 }
 
 function guessType(value) {
@@ -687,8 +702,8 @@ function normalizeNotice(notice) {
 
 async function fetchActiveNotice() {
   if (!CONFIG.apiBase || !CONFIG.store) return null
-  const data = await fetchJson(`${CONFIG.apiBase}/api/notices?active=1&store=${encodeURIComponent(CONFIG.store)}&limit=1&t=${Date.now()}`)
-  return normalizeNotice(data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
+  const data = await fetchPlayerState('notice')
+  return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
 }
 
 
@@ -734,6 +749,7 @@ function hideNoticeOverlay() {
   }
   state.noticeVisible = false
   state.activeNoticeId = ''
+  setMainPlaybackPaused(false)
 }
 
 function noticeTextMarkup(notice) {
@@ -761,15 +777,65 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#039;')
 }
 
-async function showNoticeOverlay(notice) {
+function getKstDateKey(value = new Date()) {
+  return kstString(value).slice(0, 10)
+}
+
+function getNoticeRepeatMode(notice = {}) {
+  if (notice.priority === 'urgent' && !notice.repeatMode) return 'always'
+  return String(notice.repeatMode || 'once').toLowerCase()
+}
+
+function getNoticeSeenValue(noticeKey) {
+  try { return localStorage.getItem(getSeenNoticeStorageKey(noticeKey)) || '' } catch { return '' }
+}
+
+function shouldShowNoticeNow(notice, noticeKey, reason = 'poll') {
+  if (!noticeKey) return false
+  const mode = getNoticeRepeatMode(notice)
+  if (mode === 'always') return true
+  if (mode === 'command') return reason === 'remote-command' || reason === 'startup'
+  const seen = getNoticeSeenValue(noticeKey)
+  if (mode === 'daily') return seen !== getKstDateKey()
+  if (mode === 'interval') {
+    const last = Number(seen || 0)
+    const intervalMin = Math.max(1, Number(notice.repeatIntervalMin || notice.intervalMin || 30))
+    return !last || Date.now() - last >= intervalMin * 60 * 1000
+  }
+  return seen !== '1'
+}
+
+function markNoticeShown(notice, noticeKey) {
+  if (!noticeKey) return
+  const mode = getNoticeRepeatMode(notice)
+  try {
+    if (mode === 'always') return
+    if (mode === 'daily') localStorage.setItem(getSeenNoticeStorageKey(noticeKey), getKstDateKey())
+    else if (mode === 'interval') localStorage.setItem(getSeenNoticeStorageKey(noticeKey), String(Date.now()))
+    else localStorage.setItem(getSeenNoticeStorageKey(noticeKey), '1')
+  } catch {}
+}
+
+function setMainPlaybackPaused(paused) {
+  for (const side of ['left', 'right']) {
+    const zone = getZone(side)
+    if (!zone) continue
+    zone.querySelectorAll('video').forEach((video) => {
+      try {
+        if (paused) video.pause()
+        else video.play().catch(() => {})
+      } catch {}
+    })
+  }
+}
+
+async function showNoticeOverlay(notice, reason = 'poll') {
   if (!notice) return hideNoticeOverlay()
   const noticeKey = getNoticeKey(notice)
   const isSame = state.activeNoticeId === noticeKey && state.noticeVisible
   if (isSame) return
 
-  // 핵심: 같은 공지 ID/수정버전은 한 번만 표시합니다.
-  // 콘텐츠가 다음 이미지로 넘어가거나 noticePoll이 다시 돌아도 같은 공지가 반복 표시되지 않습니다.
-  if (hasSeenNotice(noticeKey)) {
+  if (!shouldShowNoticeNow(notice, noticeKey, reason)) {
     if (state.noticeVisible) hideNoticeOverlay()
     return
   }
@@ -778,7 +844,8 @@ async function showNoticeOverlay(notice) {
   if (state.noticeTimer) clearTimeout(state.noticeTimer)
   state.activeNoticeId = noticeKey
   state.noticeVisible = true
-  markNoticeSeen(noticeKey)
+  markNoticeShown(notice, noticeKey)
+  setMainPlaybackPaused(true)
   setStatus(`공지 송출중: ${notice.title || notice.id}`)
 
   if (notice.type === 'image') {
@@ -811,8 +878,11 @@ async function showNoticeOverlay(notice) {
       video.controls = false
       video.preload = 'auto'
       video.onended = () => {
-        if (notice.priority !== 'urgent') hideNoticeOverlay()
-        else { try { video.currentTime = 0; video.play().catch(() => {}) } catch {} }
+        if (notice.priority === 'urgent' || getNoticeRepeatMode(notice) === 'always') {
+          try { video.currentTime = 0; video.play().catch(() => {}) } catch {}
+        } else {
+          hideNoticeOverlay()
+        }
       }
       video.onerror = () => {
         reportPlayerError('LV-NOTICE-PLAY-FAIL', '공지 영상 재생에 실패했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
@@ -834,7 +904,7 @@ async function showNoticeOverlay(notice) {
     overlay.classList.add('is-active')
   }
 
-  if (notice.priority !== 'urgent') {
+  if (notice.priority !== 'urgent' && getNoticeRepeatMode(notice) !== 'always') {
     state.noticeTimer = setTimeout(() => {
       // 같은 noticeKey는 이미 표시 시작 시점에 저장했으므로 다음 폴링에서 다시 열리지 않습니다.
       hideNoticeOverlay()
@@ -846,7 +916,7 @@ async function checkNotice(reason = 'poll') {
   if (!CONFIG.apiBase || !CONFIG.store) return
   try {
     const notice = await fetchActiveNotice()
-    if (notice) await showNoticeOverlay(notice)
+    if (notice) await showNoticeOverlay(notice, reason)
     else if (state.noticeVisible) hideNoticeOverlay()
   } catch (error) {
     reportPlayerError('LV-NOTICE-API-DOWN', error?.message || '공지 API 확인 실패', { reason }, 'warning')
@@ -859,10 +929,12 @@ async function syncConfig(reason = 'scheduled') {
 
   try {
     setStatus('CMS 재생목록 확인중...')
-    const data = await fetchPlayerConfig()
+    const data = await fetchPlayerState(reason)
 
-    const commandHandled = await handleRemoteCommand(data.devices || [])
+    const commandHandled = await handleRemoteCommand(data.devices || [], data.command)
     if (commandHandled) return
+    if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), reason)
+    else if (state.noticeVisible) hideNoticeOverlay()
 
     const nextLeft = normalizeItems(data.playlists?.left)
     const nextRight = normalizeItems(data.playlists?.right)
@@ -929,14 +1001,14 @@ async function syncConfig(reason = 'scheduled') {
   }
 }
 
-async function handleRemoteCommand(devices) {
+async function handleRemoteCommand(devices, commandFromState = null) {
   const myDevice = CONFIG.deviceId
     ? devices.find((device) => device.id === CONFIG.deviceId || device.store === CONFIG.store)
     : devices.find((device) => device.store === CONFIG.store || device.id === CONFIG.store)
   if (!myDevice) return false
 
-  const command = String(myDevice.lastCommand || '')
-  const commandAt = String(myDevice.commandAt || '')
+  const command = String(commandFromState?.command || myDevice.lastCommand || '')
+  const commandAt = String(commandFromState?.commandAt || commandFromState?.commandAtUtc || myDevice.commandAt || '')
   if (!command || !commandAt) return false
 
   // CMS에서 보낸 새로고침 계열 명령은 단순 reload가 아니라
@@ -976,8 +1048,9 @@ async function handleRemoteCommand(devices) {
 async function checkRemoteCommand() {
   if (!CONFIG.apiBase || !CONFIG.store) return
   try {
-    const data = await fetchPlayerConfig()
-    await handleRemoteCommand(data.devices || [])
+    const data = await fetchPlayerState('command')
+    await handleRemoteCommand(data.devices || [], data.command)
+    if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), 'command')
   } catch (error) {}
 }
 
@@ -990,7 +1063,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.6',
+    app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.7',
   }
 
   let lastError = null
@@ -1304,15 +1377,9 @@ async function boot() {
   await checkNotice('startup')
   await sendHeartbeat()
 
-  setInterval(() => syncConfig('hourly'), CONFIG.refreshMs)
-  if (CONFIG.commandPollMs > 0) {
-    setInterval(() => checkRemoteCommand(), CONFIG.commandPollMs)
-  }
+  setInterval(() => syncConfig('player-state'), CONFIG.playerStatePollMs)
   if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
     setInterval(() => checkAppConfig('interval'), CONFIG.appConfigPollMs)
-  }
-  if (CONFIG.noticePollMs > 0) {
-    setInterval(() => checkNotice('interval'), CONFIG.noticePollMs)
   }
   setInterval(sendHeartbeat, CONFIG.heartbeatMs)
   setInterval(updateDebug, 2000)

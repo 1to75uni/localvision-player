@@ -8,7 +8,7 @@ LocalVision Player v1.6 Store Heartbeat Final - Patch Notes
 - 기존 store/apiBase 오류 화면, last good 복구, hard refresh 중복 처리 구조 유지
 
 
-LocalVision Player v1.6.2 Heartbeat + Notice Polish
+LocalVision Player v1.6.6 Heartbeat + Notice Polish
 - heartbeat 기본값: 300000ms
 - commandPoll 기본값: 300000ms
 - noticePollMs 기본값: 60000ms

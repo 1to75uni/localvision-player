@@ -1,4 +1,4 @@
-LocalVision Player v1.6.2 heartbeat-notice
+LocalVision Player v1.6.7 heartbeat-notice
 - heartbeat 기본 300초
 - commandPoll 기본 300초
 - noticePollMs 기본 60초

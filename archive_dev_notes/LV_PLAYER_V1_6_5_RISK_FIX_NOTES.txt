@@ -1,4 +1,4 @@
-LocalVision Player v1.6.5 risk-fixed
+LocalVision Player v1.6.6 risk-fixed
 
 반영:
 - refresh 기본값 3600000ms(1시간) -> 480000ms(8분)

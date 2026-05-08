@@ -1,4 +1,4 @@
-LocalVision Player v1.6.6 KST Heartbeat Final
+LocalVision Player v1.6.7 KST Heartbeat Final
 
 반영 내용
 1. 한국 시간 로그 보강
@@ -19,7 +19,7 @@ LocalVision Player v1.6.6 KST Heartbeat Final
 
 5. Service Worker
    - /api/* 요청은 절대 캐시하지 않는 network-only 정책 유지
-   - app cache 버전 v1.6.6으로 변경하여 구버전 캐시 충돌 완화
+   - app cache 버전 v1.6.7으로 변경하여 구버전 캐시 충돌 완화
 
 검토 결과
 - app.js, sw.js node --check 통과
