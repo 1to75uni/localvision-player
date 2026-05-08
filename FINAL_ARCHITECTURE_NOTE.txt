@@ -3,7 +3,7 @@ LocalVision 실전형 Player-Centric 세트
 
 최종 기준:
 - APP v9.2 Minimal Native Shell
-- Player v1.6.8 URL-Based Operation Core
+- Player v1.6.10 URL-Based Operation Core
 - CMS v1.7.5 Player-Centric Stable
 
 역할 분리:

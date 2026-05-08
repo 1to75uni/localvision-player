@@ -1,0 +1,7 @@
+LocalVision Player v1.6.10 CORS SAFE FETCH
+
+- fetchJson에서 cache-control 요청 헤더 제거.
+- CMS API cross-origin 호출 시 preflight/CORS 차단 가능성을 줄임.
+- 오류 화면과 player-error 보고에 endpoint, URL, HTTP status를 포함.
+- sw.js 캐시명과 version.json을 v1.6.10으로 갱신.
+- CMS v1.7.8 CORS SAFE + UI POLISH와 함께 사용.

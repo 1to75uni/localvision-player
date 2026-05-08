@@ -1,6 +1,6 @@
-LocalVision Player v1.6.9 Immediate API Boot
-- Player URL 접속 즉시 app-config / player-state / notice / heartbeat를 1회 호출
-- 첫 API 성공 여부와 무관하게 정기 호출 타이머를 먼저 등록
-- API 하나가 실패해도 다른 API 호출과 저장된 캐시 재생을 막지 않음
-- 이후 호출 주기: heartbeat 300초, player-state/command 300초, notice 60초, app-config 30분
-- APP Shell은 스크린샷/캐시삭제 Native bridge만 제공
+LocalVision Player v1.6.10 CORS SAFE FETCH
+- API fetch에서 cache-control/pragma 요청 헤더를 직접 붙이지 않도록 수정
+- CORS preflight 실패 가능성을 줄이고, cache: no-store + t 파라미터로 최신값 확인
+- 오류 화면에 endpoint / URL / HTTP status / step 표시
+- sw.js 캐시명을 v1.6.10으로 변경해 구버전 캐시 충돌 감소
+- CMS v1.7.8 + APP v9.2 조합 기준

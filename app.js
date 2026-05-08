@@ -189,7 +189,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.6.9-immediate-api-boot',
+          playerVersion: 'v1.6.10-cors-safe-fetch',
         },
       }),
     })
@@ -326,15 +326,30 @@ async function fetchJson(url, options = {}) {
   for (let i = 0; i < attempts; i += 1) {
     if (delays[i]) await sleep(delays[i])
     try {
+      // CORS 안정성: API fetch에는 cache-control/pragma 같은 요청 헤더를 직접 붙이지 않습니다.
+      // cache: 'no-store' 옵션과 URL의 t/_lvts 캐시버스터만 사용합니다.
       const response = await fetch(url, {
         cache: 'no-store',
         ...cleanOptions,
-        headers: { 'cache-control': 'no-store', ...(cleanOptions.headers || {}) },
+        headers: { ...(cleanOptions.headers || {}) },
       })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`)
+      const text = await response.text().catch(() => '')
+      let data = {}
+      try { data = text ? JSON.parse(text) : {} } catch (_) {
+        data = { ok: false, error: text.slice(0, 300) || 'Non-JSON response' }
+      }
+      if (!response.ok || data.ok === false) {
+        const err = createPlayerError(data.errorCode || 'LV-API-DOWN', data.error || `HTTP ${response.status}`)
+        err.status = response.status
+        err.endpoint = (() => { try { return new URL(url).pathname } catch (_) { return '' } })()
+        err.url = url
+        err.responseBody = text.slice(0, 500)
+        throw err
+      }
       return data
     } catch (error) {
+      if (!error.url) error.url = url
+      if (!error.endpoint) { try { error.endpoint = new URL(url).pathname } catch (_) {} }
       lastError = error
       // POST/PATCH도 1회 이상은 재시도하지만, 긴 반복은 하지 않습니다.
     }
@@ -1001,17 +1016,17 @@ async function syncConfig(reason = 'scheduled') {
         setStatus('오프라인: 저장된 재생목록 사용')
       } else {
         const code = error.code || 'LV-API-DOWN'
-        await reportPlayerError(code, error.message, { reason }, 'error')
+        await reportPlayerError(code, error.message, { reason, endpoint: error.endpoint || '', url: error.url || '', httpStatus: error.status || '' }, 'error')
         showErrorScreen({
           title: code === 'LV-PLAYLIST-EMPTY' ? '콘텐츠가 없습니다.' : 'CMS 연결 또는 playlist 확인 실패',
           message: code === 'LV-PLAYLIST-EMPTY' ? 'CMS에서 콘텐츠를 업로드하거나 playlist를 확인해 주세요.' : error.message,
           errorCode: code,
-          detail: `store=${CONFIG.store || '-'}\napiBase=${CONFIG.apiBase || '-'}`,
+          detail: `store=${CONFIG.store || '-'}\napiBase=${CONFIG.apiBase || '-'}\nendpoint=${error.endpoint || '-'}\nurl=${error.url || '-'}\nhttpStatus=${error.status || '-'}\nstep=${reason || '-'}`,
         })
       }
     } else {
       const code = error.code || 'LV-API-DOWN'
-      await reportPlayerError(code, error.message, { reason, mode: 'keep-current-playlist' }, 'warning')
+      await reportPlayerError(code, error.message, { reason, mode: 'keep-current-playlist', endpoint: error.endpoint || '', url: error.url || '', httpStatus: error.status || '' }, 'warning')
       setStatus(`${code}: CMS 확인 실패, 기존 재생 유지`)
     }
     updateDebug()
@@ -1061,7 +1076,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.9', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.10', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1110,7 +1125,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.6.9-immediate-api-boot',
+    playerVersion: 'v1.6.10-cors-safe-fetch',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
