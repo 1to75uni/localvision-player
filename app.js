@@ -55,9 +55,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-8'
-const META_KEY = 'lv-media-bundle-meta-v1-6-8'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-8-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-9'
+const META_KEY = 'lv-media-bundle-meta-v1-6-9'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-9-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -105,7 +105,9 @@ const state = {
   playbackFailureCount: 0,
   lastPlaybackFailureAt: 0,
   recoveryReloadPending: false,
+  intervalsStarted: false,
 }
+
 
 const RECOVERY_KEY = `lv-player-recovery-${CONFIG.store || CONFIG.appId || 'unknown'}`
 
@@ -187,7 +189,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.6.8-url-operation-core',
+          playerVersion: 'v1.6.9-immediate-api-boot',
         },
       }),
     })
@@ -1059,7 +1061,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.8', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.9', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1108,7 +1110,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.6.8-url-operation-core',
+    playerVersion: 'v1.6.9-immediate-api-boot',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1393,14 +1395,55 @@ function setupDebugToggle() {
   els.clearCacheBtn.addEventListener('click', () => clearMediaCache())
 }
 
+function fireAndForget(label, task) {
+  Promise.resolve()
+    .then(task)
+    .catch((error) => {
+      console.warn('[LocalVision immediate boot]', label, error)
+      if (label !== 'heartbeat') {
+        reportPlayerError('LV-IMMEDIATE-BOOT-FAILED', error?.message || String(error || 'unknown'), { label }, 'warning')
+      }
+    })
+}
+
+function startOperationIntervals() {
+  if (state.intervalsStarted) return
+  state.intervalsStarted = true
+
+  // 정기 호출은 첫 API 성공 여부와 무관하게 먼저 등록합니다.
+  // 첫 호출은 boot()에서 즉시 별도 실행하고, 이후에는 아래 주기대로만 반복합니다.
+  if (CONFIG.playerStatePollMs > 0) {
+    setInterval(() => syncConfig('player-state-interval'), CONFIG.playerStatePollMs)
+  }
+  if (CONFIG.noticePollMs > 0) {
+    setInterval(() => checkNotice('notice-interval'), CONFIG.noticePollMs)
+  }
+  if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
+    setInterval(() => checkAppConfig('app-config-interval'), CONFIG.appConfigPollMs)
+  }
+  if (CONFIG.heartbeatMs > 0) {
+    setInterval(() => sendHeartbeat(), CONFIG.heartbeatMs)
+  }
+  setInterval(updateDebug, 2000)
+}
+
+function runImmediateApiBoot() {
+  // Player URL 접속 즉시 1회 호출합니다.
+  // 어떤 API가 실패해도 다른 API 호출과 재생/캐시 복구가 멈추지 않도록 전부 독립 실행합니다.
+  if (CONFIG.appId) fireAndForget('app-config-startup', () => checkAppConfig('startup-immediate'))
+  fireAndForget('player-state-startup', () => syncConfig('startup-immediate'))
+  if (CONFIG.noticePollMs > 0) fireAndForget('notice-startup', () => checkNotice('startup-immediate'))
+  fireAndForget('heartbeat', () => sendHeartbeat())
+}
+
 async function boot() {
   await registerServiceWorker()
   setupDebugToggle()
   setupDailyRestart()
   await updateCacheStatus()
 
-  const redirectedByAppConfig = await checkAppConfig('startup')
-  if (redirectedByAppConfig) return
+  // 정기 호출 등록은 네트워크 성공을 기다리지 않고 먼저 처리합니다.
+  startOperationIntervals()
 
   const fatalIssue = bootIssues.find((issue) => issue.level === 'fatal')
   const warnings = bootIssues.filter((issue) => issue.level === 'warning')
@@ -1408,6 +1451,19 @@ async function boot() {
     setStatus(`${issue.code}: ${issue.message}`)
     reportPlayerError(issue.code, issue.message, { recoveredStore: CONFIG.store, recoveredApiBase: CONFIG.apiBase }, 'warning')
   })
+
+  // 저장된 콘텐츠가 있으면 API 응답을 기다리지 않고 즉시 재생합니다.
+  if (loadSavedBundle()) {
+    startPlayback('left')
+    window.setTimeout(() => startPlayback('right'), 500)
+    setStatus('저장된 캐시 재생 시작 · API 즉시 확인 중')
+  } else {
+    setStatus('Player 시작 · CMS API 즉시 확인 중')
+  }
+
+  // 첫 API 호출은 바로 실행합니다. 성공/실패가 다른 호출을 막지 않습니다.
+  runImmediateApiBoot()
+
   if (fatalIssue) {
     showErrorScreen({
       title: fatalIssue.title || '설정 정보가 없습니다.',
@@ -1417,27 +1473,9 @@ async function boot() {
     })
     await reportPlayerError(fatalIssue.code, fatalIssue.message, { href: location.href }, 'fatal')
     updateDebug()
-    return
   }
-
-  if (loadSavedBundle()) {
-    startPlayback('left')
-    window.setTimeout(() => startPlayback('right'), 500)
-    setStatus('저장된 캐시 재생 시작')
-  }
-
-  await syncConfig('startup')
-  await checkNotice('startup')
-  await sendHeartbeat();
-
-  setInterval(() => syncConfig('player-state'), CONFIG.playerStatePollMs)
-  if (CONFIG.noticePollMs > 0) setInterval(() => checkNotice('notice-poll'), CONFIG.noticePollMs)
-  if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
-    setInterval(() => checkAppConfig('interval'), CONFIG.appConfigPollMs)
-  }
-  if (CONFIG.heartbeatMs > 0) setInterval(sendHeartbeat, CONFIG.heartbeatMs)
-  setInterval(updateDebug, 2000)
 }
+
 
 window.addEventListener('error', (event) => {
   const message = event.message || '알 수 없는 오류가 발생했습니다.'

@@ -1,13 +1,13 @@
 {
-  "build": "v1.6.8-url-operation-core",
-  "version": "1.6.8",
+  "build": "v1.6.9-immediate-api-boot",
+  "version": "1.6.9",
   "updatedAt": "2026-05-08",
   "highlights": [
-    "Player heartbeat is always the main ONLINE source",
-    "APP shell is only used as Native bridge for screenshot/cache tools",
-    "noticePollMs default 60000",
-    "/api/player-state POST heartbeat/state reporting",
-    "API no-store retry/backoff"
+    "Player URL open immediately triggers app-config, player-state, notice, and heartbeat once",
+    "Recurring API calls are registered before any startup API succeeds",
+    "Startup API calls are independent so one failure does not block playback or other calls",
+    "Player heartbeat remains the main ONLINE source",
+    "APP shell remains only Native bridge for screenshot/cache tools"
   ],
-  "notes": "Player-centric operation core for APP v9.2 Minimal Shell and CMS v1.7.5."
+  "notes": "Immediate API boot for APP v9.2 Minimal Shell and CMS v1.7.7. First calls happen immediately; later calls follow configured intervals."
 }

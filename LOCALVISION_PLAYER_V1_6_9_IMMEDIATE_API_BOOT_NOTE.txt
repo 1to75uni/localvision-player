@@ -1,0 +1,18 @@
+LocalVision Player v1.6.9 Immediate API Boot
+
+목표:
+- Player URL로 접속하면 API가 즉시 1회 호출되어야 한다.
+- 첫 API 호출과 정기 API 호출을 분리한다.
+- 첫 API 실패가 다른 API 호출, 캐시 재생, 정기 타이머 등록을 막지 않는다.
+
+핵심 변경:
+1. boot()에서 정기 호출 타이머를 먼저 등록한다.
+2. app-config, player-state, notice, heartbeat 첫 호출을 독립적으로 즉시 실행한다.
+3. 저장된 bundle이 있으면 API 응답 대기 없이 먼저 재생한다.
+4. 이후에는 URL/CMS에서 지정한 주기대로만 호출한다.
+
+기준 주기:
+- heartbeat=300000
+- playerStatePoll/commandPoll=300000
+- noticePollMs=60000
+- appConfigPoll=1800000

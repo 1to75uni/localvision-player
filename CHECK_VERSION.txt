@@ -1,5 +1,6 @@
-LocalVision Player v1.6.8 URL-Based Operation Core
-- heartbeat 기본 300초: Player가 메인 ONLINE 신호 전송
-- commandPoll/statePoll 기본 300초: /api/player-state 중심 확인
-- noticePollMs 기본 60초
+LocalVision Player v1.6.9 Immediate API Boot
+- Player URL 접속 즉시 app-config / player-state / notice / heartbeat를 1회 호출
+- 첫 API 성공 여부와 무관하게 정기 호출 타이머를 먼저 등록
+- API 하나가 실패해도 다른 API 호출과 저장된 캐시 재생을 막지 않음
+- 이후 호출 주기: heartbeat 300초, player-state/command 300초, notice 60초, app-config 30분
 - APP Shell은 스크린샷/캐시삭제 Native bridge만 제공
