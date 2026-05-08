@@ -1,18 +1,13 @@
 {
-  "build": "v1.6.7-stable-player-state",
-  "version": "v1.6.7",
-  "updatedAt": "2026-05-08T09:00:00+09:00",
-  "features": [
-    "lv001 app-config check",
-    "/api/player-state unified polling",
-    "error 1 skip",
-    "error 2 auto reload",
-    "heartbeat 300000",
-    "playerStatePoll 300000",
-    "noticePollMs 300000",
-    "appConfigPoll 1800000",
-    "notice video fullscreen pause/resume",
-    "default duration 20"
+  "build": "v1.6.8-url-operation-core",
+  "version": "1.6.8",
+  "updatedAt": "2026-05-08",
+  "highlights": [
+    "Player heartbeat is always the main ONLINE source",
+    "APP shell is only used as Native bridge for screenshot/cache tools",
+    "noticePollMs default 60000",
+    "/api/player-state POST heartbeat/state reporting",
+    "API no-store retry/backoff"
   ],
-  "notes": "Stable player-state build: KST notice timing, fullscreen video notice, unified polling, heartbeat retry, recovery reload limit fallback."
+  "notes": "Player-centric operation core for APP v9.2 Minimal Shell and CMS v1.7.5."
 }

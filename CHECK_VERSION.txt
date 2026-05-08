@@ -1,5 +1,5 @@
-LocalVision Player v1.6.7 heartbeat-notice
-- heartbeat 기본 300초
-- commandPoll 기본 300초
+LocalVision Player v1.6.8 URL-Based Operation Core
+- heartbeat 기본 300초: Player가 메인 ONLINE 신호 전송
+- commandPoll/statePoll 기본 300초: /api/player-state 중심 확인
 - noticePollMs 기본 60초
-- 같은 noticeId/updatedAt 공지는 1회만 표시
+- APP Shell은 스크린샷/캐시삭제 Native bridge만 제공

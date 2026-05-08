@@ -1,0 +1,52 @@
+LocalVision 실전형 Player-Centric 세트
+생성일: 2026-05-08
+
+최종 기준:
+- APP v9.2 Minimal Native Shell
+- Player v1.6.8 URL-Based Operation Core
+- CMS v1.7.5 Player-Centric Stable
+
+역할 분리:
+1) APP
+- APP ID 저장
+- /api/app-config?id=lv001 조회
+- CMS가 내려준 Player URL 실행
+- WebView 전체화면/화면꺼짐 방지
+- 0번 5회 설정 진입
+- Native screenshot bridge 제공
+- APP Native heartbeat 루프 제거
+- APP native-command 폴링 제거
+- native=1 강제 삽입 제거
+
+2) Player
+- 재생/캐시/공지/명령/오류복구 담당
+- Player heartbeat가 메인 ONLINE 기준
+- /api/player-state GET으로 playlist/notice/command/config 통합 조회
+- /api/player-state POST로 heartbeat/state 보고
+- screenshot 명령 수신 후 APP Shell bridge 호출
+- noticePollMs 기본값 60000ms
+
+3) CMS
+- 업체/콘텐츠/공지/상태/명령/스크린샷 관리
+- /api/player-state POST/PATCH 추가
+- /api/player-state GET 유지
+- /api/app-config, /api/player-config, /api/devices, /api/screenshots 하위호환 유지
+- D1 heartbeat write는 10분마다 또는 상태 변경 시만 기록하는 방향
+- CMS 첫 화면 API 순간 실패 대응용 fetch retry guard 추가
+
+운영값:
+- heartbeat=300000
+- onlineTTL=600000
+- refresh=480000
+- commandPoll/statePoll=300000
+- noticePollMs=60000
+- appConfigPollMs=1800000
+- cacheMax=20
+- defaultDuration=20초
+
+검증:
+- Player app.js: node --check 통과
+- Player sw.js: node --check 통과
+- CMS functions JS: node --check 통과
+- CMS API retry JS: node --check 통과
+- Android Gradle 빌드는 현재 컨테이너가 인터넷에 접속할 수 없어 Gradle distribution 다운로드 실패로 실행하지 못함. Android Studio에서 열어 빌드 필요.

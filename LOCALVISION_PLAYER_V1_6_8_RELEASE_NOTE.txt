@@ -1,0 +1,11 @@
+# LocalVision Player v1.6.8 URL-Based Operation Core
+
+## 핵심 변경
+- native=1/appShell=1 여부와 관계없이 Player Web heartbeat를 메인으로 사용합니다.
+- `/api/player-state` POST로 Player 상태/heartbeat를 보고합니다.
+- screenshot 명령은 Player가 수신하고 APP Shell bridge(`window.LocalVisionNative.captureScreenshot`)를 호출합니다.
+- noticePollMs 기본값을 60000ms로 조정했습니다.
+- API 호출은 no-store + 짧은 retry/backoff로 CMS/D1 일시 오류에 버팁니다.
+
+## 운영 원칙
+APP은 TV 껍데기, Player는 운영 본체, CMS는 관리/모니터링입니다.

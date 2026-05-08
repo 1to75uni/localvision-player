@@ -16,7 +16,7 @@ const CONFIG = {
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
-  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 300000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('commandPoll') || params.get('commandPollMs') || 300000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
@@ -29,6 +29,8 @@ const CONFIG = {
   cacheAll: params.get('cacheAll') !== '0',
   activateWhenCached: params.get('activateWhenCached') !== '0',
   debug: params.get('debug') === '1',
+  appShell: params.get('appShell') === '1' || params.get('native') === '1' || params.get('appCore') === '1',
+  appVersion: params.get('appVersion') || '',
 }
 
 
@@ -53,9 +55,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-6-7'
-const META_KEY = 'lv-media-bundle-meta-v1-6-7'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-7-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-6-8'
+const META_KEY = 'lv-media-bundle-meta-v1-6-8'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-6-8-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -185,7 +187,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.6.7-stable-player-state',
+          playerVersion: 'v1.6.8-url-operation-core',
         },
       }),
     })
@@ -313,14 +315,29 @@ async function registerServiceWorker() {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    ...options,
-    headers: { ...(options.headers || {}) },
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`)
-  return data
+  const attempts = Number(options.attempts || 3)
+  const delays = [0, 3000, 10000]
+  let lastError = null
+  const cleanOptions = { ...options }
+  delete cleanOptions.attempts
+
+  for (let i = 0; i < attempts; i += 1) {
+    if (delays[i]) await sleep(delays[i])
+    try {
+      const response = await fetch(url, {
+        cache: 'no-store',
+        ...cleanOptions,
+        headers: { 'cache-control': 'no-store', ...(cleanOptions.headers || {}) },
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`)
+      return data
+    } catch (error) {
+      lastError = error
+      // POST/PATCH도 1회 이상은 재시도하지만, 긴 반복은 하지 않습니다.
+    }
+  }
+  throw lastError || new Error('fetch failed')
 }
 
 
@@ -333,7 +350,7 @@ function comparableUrl(value) {
   try {
     const url = new URL(value, location.href)
     url.hash = ''
-    url.searchParams.delete('t')
+    for (const key of ['t', 'nativeReload', 'appShell', 'appVersion', 'native', 'appCore']) url.searchParams.delete(key)
     return url.toString()
   } catch {
     return String(value || '').trim()
@@ -1036,10 +1053,34 @@ async function handleRemoteCommand(devices, commandFromState = null) {
     return true
   }
 
-  if (command === 'screenshot') {
-    // 실제 화면 캡처는 Android TV APP v8.2의 Native 캡처 루틴이 처리합니다.
-    // Web Player는 명령을 소모하지 않아 APP 쪽 중복 방지 로직과 충돌하지 않게 둡니다.
+  if (command === 'screenshot' || command === 'capture') {
+    if (window.LocalVisionNative?.captureScreenshot) {
+      localStorage.setItem(handledCommandKey, commandKey)
+      setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
+      try {
+        window.LocalVisionNative.captureScreenshot(JSON.stringify({
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.6.8', at: nowUtcIso(),
+        }))
+        return true
+      } catch (error) {
+        await reportPlayerError('LV-NATIVE-SCREENSHOT-FAILED', error?.message || 'APP Shell 캡처 호출 실패', { command, commandAt }, 'error')
+        return false
+      }
+    }
+    await reportPlayerError('LV-NATIVE-SCREENSHOT-UNAVAILABLE', 'APP Shell 브릿지가 없어 스크린샷 명령을 처리할 수 없습니다.', { command, commandAt }, 'warning')
     return false
+  }
+
+  if (command === 'clear_webview_cache' && window.LocalVisionNative?.clearWebViewCache) {
+    localStorage.setItem(handledCommandKey, commandKey)
+    window.LocalVisionNative.clearWebViewCache(JSON.stringify({ command, commandAt, store: CONFIG.store, id: CONFIG.appId }))
+    return true
+  }
+
+  if (command === 'reload_app' && window.LocalVisionNative?.reloadApp) {
+    localStorage.setItem(handledCommandKey, commandKey)
+    window.LocalVisionNative.reloadApp(JSON.stringify({ command, commandAt, store: CONFIG.store, id: CONFIG.appId }))
+    return true
   }
 
   return false
@@ -1058,23 +1099,35 @@ async function sendHeartbeat() {
   if (!CONFIG.apiBase || !CONFIG.store) return
   const now = nowUtcIso()
   const body = {
-    id: CONFIG.deviceId || '',
+    id: CONFIG.appId || CONFIG.deviceId || '',
+    appId: CONFIG.appId || '',
+    deviceId: CONFIG.deviceId || '',
     store: CONFIG.store,
+    source: 'player',
+    role: 'player',
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    app: CONFIG.deviceId ? 'Android TV App v8.2' : 'Player Web v1.6.7',
+    playerVersion: 'v1.6.8-url-operation-core',
+    appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
+    appVersion: CONFIG.appVersion || '',
+    currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
+    playStatus: state.noticeVisible ? 'notice' : 'playing',
+    cacheStatus: state.cacheStatus || '',
+    noticeStatus: state.noticeVisible ? 'active' : 'idle',
+    errorCount: state.playbackFailureCount || 0,
   }
 
   let lastError = null
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const data = await fetchJson(`${CONFIG.apiBase}/api/devices`, {
-        method: 'PATCH',
+      const data = await fetchJson(`${CONFIG.apiBase}/api/player-state`, {
+        method: 'POST',
+        attempts: 1,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       })
-      state.lastHeartbeat = data?.device?.lastSeenKst || kstString(now)
+      state.lastHeartbeat = data?.device?.lastSeenKst || data?.updatedAtKst || kstString(now)
       updateDebug()
       return
     } catch (error) {
@@ -1375,13 +1428,14 @@ async function boot() {
 
   await syncConfig('startup')
   await checkNotice('startup')
-  await sendHeartbeat()
+  await sendHeartbeat();
 
   setInterval(() => syncConfig('player-state'), CONFIG.playerStatePollMs)
+  if (CONFIG.noticePollMs > 0) setInterval(() => checkNotice('notice-poll'), CONFIG.noticePollMs)
   if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
     setInterval(() => checkAppConfig('interval'), CONFIG.appConfigPollMs)
   }
-  setInterval(sendHeartbeat, CONFIG.heartbeatMs)
+  if (CONFIG.heartbeatMs > 0) setInterval(sendHeartbeat, CONFIG.heartbeatMs)
   setInterval(updateDebug, 2000)
 }
 
