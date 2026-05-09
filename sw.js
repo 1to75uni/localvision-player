@@ -1,4 +1,4 @@
-const APP_CACHE = 'lv-player-app-v1-7-1-api-diet'
+const APP_CACHE = 'lv-player-app-v1-7-2-field-log-fix'
 const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {

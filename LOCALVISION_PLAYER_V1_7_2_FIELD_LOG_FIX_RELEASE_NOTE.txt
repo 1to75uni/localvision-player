@@ -1,0 +1,25 @@
+LocalVision Player v1.7.2 FIELD LOG FIX
+
+2026-05-09 1대 장시간 테스트 로그 반영 버전.
+
+핵심 수정:
+1. /api/player-state가 내려주는 playlists payload를 기본값으로 사용합니다.
+   - public R2 playlist.json 직접 fetch는 기본 OFF
+   - 필요 시 TV URL에 snapshotFetch=1을 붙이면 기존처럼 R2 snapshot 직접 확인 가능
+   - LV-SNAPSHOT-FETCH-FAILED 로그 과다 누적 방지
+
+2. app-config URL 이동/브라우저 page frozen 중 발생하는 play() interrupted 오류를 파일 손상으로 보지 않습니다.
+   - LV-MEDIA-TRANSIENT-RETRY로 30분 단위 압축 보고
+   - 캐시 삭제/세션 제외를 하지 않고 짧게 재시도
+
+3. 이미 다음 콘텐츠로 넘어간 뒤 늦게 들어오는 video onerror/watchdog 이벤트를 무시합니다.
+   - stale media event로 인한 LV-MEDIA-PLAY-FAIL 반복 감소
+
+4. 진짜 파일 재생 실패는 기존 정책 유지
+   - 1회 실패: 캐시 삭제 후 재시도
+   - 2회 실패: 이번 세션에서 임시 제외
+
+권장 운영:
+- 기존 URL 그대로 사용 가능
+- snapshotFetch 파라미터는 붙이지 않는 것을 권장
+- 특정 파일이 계속 실패하면 CMS에서 해당 mp4를 재인코딩/재업로드 권장

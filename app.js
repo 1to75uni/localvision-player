@@ -28,6 +28,10 @@ const CONFIG = {
   cacheVia: params.get('cacheVia') || 'api',
   cacheAll: params.get('cacheAll') !== '0',
   activateWhenCached: params.get('activateWhenCached') !== '0',
+  // v1.7.2: 기본값은 R2 public playlist snapshot 직접 fetch OFF.
+  // /api/player-state가 이미 playlists payload를 내려주므로, 현장에서는 public R2 CORS/일시 실패 로그를 줄이는 것이 더 안정적입니다.
+  // 필요할 때만 URL에 snapshotFetch=1을 붙이면 기존 방식처럼 R2 playlist.json을 직접 확인합니다.
+  snapshotFetch: ['1', 'true', 'yes'].includes(String(params.get('snapshotFetch') || params.get('r2SnapshotFetch') || '').toLowerCase()),
   debug: params.get('debug') === '1',
   appShell: params.get('appShell') === '1' || params.get('native') === '1' || params.get('appCore') === '1',
   appVersion: params.get('appVersion') || '',
@@ -55,9 +59,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-7-1'
-const META_KEY = 'lv-media-bundle-meta-v1-7-1'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-1-${CONFIG.store || CONFIG.appId}`
+const MEDIA_CACHE = 'lv-media-bundle-v1-7-2'
+const META_KEY = 'lv-media-bundle-meta-v1-7-2'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-2-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -106,6 +110,7 @@ const state = {
   lastPlaybackFailureAt: 0,
   recoveryReloadPending: false,
   intervalsStarted: false,
+  navigating: false,
   mediaFailures: {},
   sessionBlacklist: {},
 }
@@ -162,10 +167,10 @@ function shouldReportError(key, minMs = 60000) {
   return true
 }
 
-async function reportPlayerError(errorCode, message, extra = {}, level = 'error') {
+async function reportPlayerError(errorCode, message, extra = {}, level = 'error', minReportMs = 60000) {
   if (!CONFIG.apiBase) return
   const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.cacheUrl || extra.sourceUrl || extra.url || ''}:${message}`
-  if (!shouldReportError(key)) return
+  if (!shouldReportError(key, minReportMs)) return
 
   const timeUtc = nowUtcIso()
   const timeKst = kstString(timeUtc)
@@ -191,7 +196,7 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
           timeUtc,
           timeKst,
           apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.7.1-api-diet',
+          playerVersion: 'v1.7.2-field-log-fix',
         },
       }),
     })
@@ -243,11 +248,37 @@ async function requestRecoveryReload(errorCode, message, extra = {}) {
   return true
 }
 
+
+function isTransientPlaybackMessage(message = '') {
+  const text = String(message || '').toLowerCase()
+  return state.navigating
+    || document.visibilityState === 'hidden'
+    || text.includes('page was frozen')
+    || text.includes('containing page was frozen')
+    || text.includes('play() request was interrupted')
+    || text.includes('interrupted because')
+}
+
 async function handlePlaybackFailure(side, item, errorCode, message, extra = {}) {
   const payload = { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName, ...extra }
+  const key = mediaKeyOf(item)
+
+  // URL 이동/app-config 갱신/브라우저 frozen 중 발생하는 play() interrupt는 파일 손상으로 보지 않습니다.
+  // 캐시 삭제/세션 제외를 하지 않고 짧게 재시도하여 불필요한 오류 누적을 줄입니다.
+  if (isTransientPlaybackMessage(message)) {
+    setStatus(`${side} 일시 중단 감지: 짧게 재시도`)
+    await reportPlayerError('LV-MEDIA-TRANSIENT-RETRY', message || '일시적인 재생 중단으로 재시도합니다.', payload, 'warning', 30 * 60 * 1000)
+    if (!state.navigating) setSideTimer(side, () => playItem(side, item), 1500)
+    return
+  }
+
+  if (key && state.sessionBlacklist[key]) {
+    // 이미 이번 세션에서 제외된 파일의 늦은 onerror/watchdog 이벤트는 다시 보고하지 않습니다.
+    return scheduleNext(side, 2)
+  }
+
   await reportPlayerError(errorCode, message, payload, 'error')
 
-  const key = mediaKeyOf(item)
   const count = key ? Number(state.mediaFailures[key] || 0) + 1 : 1
   if (key) state.mediaFailures[key] = count
 
@@ -263,7 +294,7 @@ async function handlePlaybackFailure(side, item, errorCode, message, extra = {})
 
   if (key) state.sessionBlacklist[key] = Date.now()
   setStatus(`${errorCode}: ${side} 콘텐츠 임시 제외 후 다음 재생`)
-  await reportPlayerError('LV-MEDIA-SESSION-SKIP', '반복 실패 콘텐츠를 이번 세션에서 임시 제외했습니다.', { ...payload, failCount: count, blacklisted: true }, 'warning')
+  await reportPlayerError('LV-MEDIA-SESSION-SKIP', '반복 실패 콘텐츠를 이번 세션에서 임시 제외했습니다.', { ...payload, failCount: count, blacklisted: true }, 'warning', 30 * 60 * 1000)
   scheduleNext(side, 2)
 }
 
@@ -397,7 +428,8 @@ async function checkAppConfig(reason = 'poll') {
     const currentUrl = comparableUrl(location.href)
     if (nextUrl && nextUrl !== currentUrl) {
       setStatus(`app-config URL 변경 감지: ${CONFIG.appId}`)
-      await reportPlayerError('LV-APP-CONFIG-URL-CHANGE', 'CMS app-config의 Player URL 변경을 감지해 이동합니다.', { reason, appId: CONFIG.appId, nextUrl: data.playerUrl }, 'warning')
+      state.navigating = true
+      await reportPlayerError('LV-APP-CONFIG-URL-CHANGE', 'CMS app-config의 Player URL 변경을 감지해 이동합니다.', { reason, appId: CONFIG.appId, nextUrl: data.playerUrl }, 'warning', 30 * 60 * 1000)
       window.setTimeout(() => location.replace(data.playerUrl), 300)
       return true
     }
@@ -450,7 +482,7 @@ async function fetchSnapshot(url, label = 'snapshot') {
   try {
     return await fetchJson(`${url}${url.includes('?') ? '&' : '?'}_lvts=${Date.now()}`, { attempts: 2 })
   } catch (error) {
-    await reportPlayerError('LV-SNAPSHOT-FETCH-FAILED', error?.message || 'playlist snapshot fetch failed', { label, url }, 'warning')
+    await reportPlayerError('LV-SNAPSHOT-FETCH-FAILED', error?.message || 'playlist snapshot fetch failed', { label, url }, 'warning', 30 * 60 * 1000)
     return null
   }
 }
@@ -462,7 +494,17 @@ async function resolvePlaylistsFromConfig(data) {
   const urls = data?.playlistUrls || {}
   const bundleUrl = data?.playlistUrl || urls.bundle || ''
 
-  // snapshot URL이 있으면 이것을 우선 사용합니다. 단, 실패하면 API payload의 playlists로 fallback합니다.
+  // v1.7.2 현장 안정화:
+  // /api/player-state가 이미 R2 snapshot 또는 D1 fallback으로 만든 playlists를 포함합니다.
+  // 따라서 기본 운영에서는 public R2 playlist.json을 다시 fetch하지 않습니다.
+  // R2 public URL/CORS/순간 네트워크 문제로 LV-SNAPSHOT-FETCH-FAILED가 누적되는 것을 막습니다.
+  // 단, API payload가 비어 있거나 snapshotFetch=1이면 기존처럼 snapshot URL을 확인합니다.
+  const hasEmbeddedPlaylist = left.length > 0 || right.length > 0
+  if (!CONFIG.snapshotFetch && hasEmbeddedPlaylist) {
+    return { left, right }
+  }
+
+  // snapshot URL이 있으면 확인합니다. 실패하면 API payload의 playlists로 fallback합니다.
   const bundle = await fetchSnapshot(bundleUrl, 'bundle')
   if (bundle) {
     const bLeft = extractPlaylistItems(bundle, 'left')
@@ -473,7 +515,7 @@ async function resolvePlaylistsFromConfig(data) {
 
   // 공통 right는 여러 매장이 공유하므로 bundle이 있어도 별도 right snapshot이 있으면 우선 적용합니다.
   // left도 별도 snapshot이 있으면 적용합니다. 둘 중 하나가 실패해도 API payload/bundle로 fallback합니다.
-  if (urls.left || urls.right) {
+  if (CONFIG.snapshotFetch && (urls.left || urls.right)) {
     const [leftDoc, rightDoc] = await Promise.all([
       urls.left ? fetchSnapshot(urls.left, 'left') : Promise.resolve(null),
       urls.right ? fetchSnapshot(urls.right, 'right') : Promise.resolve(null),
@@ -1172,7 +1214,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.1', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.2', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1226,7 +1268,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.7.1-api-diet',
+    playerVersion: 'v1.7.2-field-log-fix',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1437,14 +1479,19 @@ function playVideo(side, item, src, token) {
 
     const delay = side === 'right' ? 200 : 0
     setTimeout(() => {
+      if (token !== state.playToken[side]) return
       video.play().then(() => {
         started = true
         markPlaybackSuccess()
         clearWatchdog(side)
       }).catch(() => {
-        setTimeout(() => video.play().catch((error) => {
-          handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', mediaDebugInfo(video, item))
-        }), 300)
+        setTimeout(() => {
+          if (token !== state.playToken[side]) return
+          video.play().catch((error) => {
+            if (token !== state.playToken[side]) return
+            handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', mediaDebugInfo(video, item))
+          })
+        }, 300)
       })
     }, delay)
   }
@@ -1452,18 +1499,24 @@ function playVideo(side, item, src, token) {
   video.onloadeddata = reveal
   video.oncanplay = reveal
 
-  video.onended = () => next(side)
+  video.onended = () => {
+    if (token !== state.playToken[side]) return
+    next(side)
+  }
   video.onerror = () => {
+    if (token !== state.playToken[side]) return
     handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.', mediaDebugInfo(video, item))
   }
 
   video.onloadedmetadata = () => {
+    if (token !== state.playToken[side]) return
     if (Number.isFinite(video.duration) && video.duration > 0) {
       setSideTimer(side, () => next(side), Math.ceil(video.duration + 2) * 1000)
     }
   }
 
   setWatchdog(side, () => {
+    if (token !== state.playToken[side]) return
     if (!started) handlePlaybackFailure(side, item, 'LV-MEDIA-WATCHDOG', '영상 시작 시간이 초과되어 다음 콘텐츠로 이동합니다.', mediaDebugInfo(video, item))
   }, 15000)
 

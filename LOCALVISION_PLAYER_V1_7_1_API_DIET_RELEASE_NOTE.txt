@@ -1,4 +1,4 @@
-LocalVision Player v1.7.1 API DIET
+LocalVision Player v1.7.2 API DIET FIELD LOG FIX
 
 목표:
 - 영상 재생은 유지하면서 CMS 호출을 가볍게 분리

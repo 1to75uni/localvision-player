@@ -1,6 +1,6 @@
-LocalVision Player v1.7.1 OFFLINE FIRST
+LocalVision Player v1.7.2 OFFLINE FIRST
 - API fetch에서 cache-control/pragma 요청 헤더를 직접 붙이지 않도록 수정
 - CORS preflight 실패 가능성을 줄이고, cache: no-store + t 파라미터로 최신값 확인
 - 오류 화면에 endpoint / URL / HTTP status / step 표시
-- sw.js 캐시명을 v1.7.1으로 변경해 구버전 캐시 충돌 감소
+- sw.js 캐시명을 v1.7.2으로 변경해 구버전 캐시 충돌 감소
 - CMS v1.7.8 + APP v9.2 조합 기준
