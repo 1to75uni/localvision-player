@@ -1,6 +1,7 @@
-LocalVision Player v1.7.2 OFFLINE FIRST
-- API fetch에서 cache-control/pragma 요청 헤더를 직접 붙이지 않도록 수정
-- CORS preflight 실패 가능성을 줄이고, cache: no-store + t 파라미터로 최신값 확인
-- 오류 화면에 endpoint / URL / HTTP status / step 표시
-- sw.js 캐시명을 v1.7.2으로 변경해 구버전 캐시 충돌 감소
-- CMS v1.7.8 + APP v9.2 조합 기준
+LocalVision Player v1.7.3 CONTENT SYNC FIELD LOG
+- CMS 재생목록 확인/변경/적용 로그 추가
+- CMS 오류로그 전송 실패 시 localStorage에 최대 50개/24시간 임시 저장 후 성공 시 batch 재전송
+- version.json build 변경 감지 시 안전 새로고침
+- snapshotFetch=0 기본 유지
+- 문제 미디어 6시간 격리 기능은 제외. 기존 세션 임시 제외만 유지
+- CMS v1.8.3 + APP v9.2 조합 기준

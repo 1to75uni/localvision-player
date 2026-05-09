@@ -1,13 +1,13 @@
 {
-  "build": "v1.7.2-field-log-fix",
-  "version": "1.7.2",
+  "build": "v1.7.3-content-sync-field-log",
+  "version": "1.7.3",
   "updatedAt": "2026-05-09",
   "highlights": [
-    "Default to API payload playlists; public R2 snapshot fetch is opt-in with snapshotFetch=1",
-    "Reduces LV-SNAPSHOT-FETCH-FAILED noise from public playlist.json fetch failures",
-    "Treats page frozen / app-config navigation play() interruption as transient, not corrupted media",
-    "Ignores stale video onerror/watchdog events after playback token changes",
-    "Keeps media retry once, then session-skip for true repeated media failures"
+    "Logs playlist check/changed/applied events so CMS can see when a new 7th content item is detected",
+    "Queues player error logs in localStorage when CMS is temporarily unreachable and flushes them later in batch",
+    "Keeps snapshotFetch=0 default and trusts /api/player-state payload playlists",
+    "Adds safe version.json build check for automatic reload after Player deployment",
+    "Does NOT add 6-hour media quarantine; existing session-skip behavior remains only for the current session"
   ],
-  "notes": "Field-log stabilization build after overnight 1-TV test. Works with CMS v1.8.1+ and APP v9.2."
+  "notes": "Content sync field-log build. Works with CMS v1.8.3 and APP v9.2 without APP changes."
 }

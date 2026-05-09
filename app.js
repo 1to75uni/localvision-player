@@ -18,6 +18,7 @@ const CONFIG = {
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
+  versionPollMs: Number(params.get('versionPoll') || 600000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
@@ -28,7 +29,7 @@ const CONFIG = {
   cacheVia: params.get('cacheVia') || 'api',
   cacheAll: params.get('cacheAll') !== '0',
   activateWhenCached: params.get('activateWhenCached') !== '0',
-  // v1.7.2: 기본값은 R2 public playlist snapshot 직접 fetch OFF.
+  // v1.7.3: 기본값은 R2 public playlist snapshot 직접 fetch OFF.
   // /api/player-state가 이미 playlists payload를 내려주므로, 현장에서는 public R2 CORS/일시 실패 로그를 줄이는 것이 더 안정적입니다.
   // 필요할 때만 URL에 snapshotFetch=1을 붙이면 기존 방식처럼 R2 playlist.json을 직접 확인합니다.
   snapshotFetch: ['1', 'true', 'yes'].includes(String(params.get('snapshotFetch') || params.get('r2SnapshotFetch') || '').toLowerCase()),
@@ -59,9 +60,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const MEDIA_CACHE = 'lv-media-bundle-v1-7-2'
-const META_KEY = 'lv-media-bundle-meta-v1-7-2'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-2-${CONFIG.store || CONFIG.appId}`
+const PLAYER_BUILD = 'v1.7.3-content-sync-field-log'
+const MEDIA_CACHE = 'lv-media-bundle-v1-7-3'
+const META_KEY = 'lv-media-bundle-meta-v1-7-3'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-3-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -113,10 +115,15 @@ const state = {
   navigating: false,
   mediaFailures: {},
   sessionBlacklist: {},
+  lastPlaylistCheckReportAt: 0,
+  versionReloadPending: false,
 }
 
 
 const RECOVERY_KEY = `lv-player-recovery-${CONFIG.store || CONFIG.appId || 'unknown'}`
+const ERROR_QUEUE_KEY = `lv-player-error-queue-${CONFIG.store || CONFIG.appId || 'unknown'}`
+const ERROR_QUEUE_MAX = 50
+const ERROR_QUEUE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 const els = {
   leftZone: document.getElementById('leftZone'),
@@ -167,6 +174,67 @@ function shouldReportError(key, minMs = 60000) {
   return true
 }
 
+
+function readQueuedPlayerErrors() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ERROR_QUEUE_KEY) || '[]')
+    if (!Array.isArray(raw)) return []
+    const now = Date.now()
+    return raw
+      .filter((item) => item && now - Number(item.queuedAt || 0) <= ERROR_QUEUE_MAX_AGE_MS)
+      .slice(-ERROR_QUEUE_MAX)
+  } catch {
+    return []
+  }
+}
+
+function writeQueuedPlayerErrors(items = []) {
+  try { localStorage.setItem(ERROR_QUEUE_KEY, JSON.stringify(items.slice(-ERROR_QUEUE_MAX))) } catch {}
+}
+
+function enqueuePlayerError(payload = {}) {
+  const items = readQueuedPlayerErrors()
+  const compact = {
+    ...payload,
+    queuedAt: Date.now(),
+    extra: {
+      ...(payload.extra || {}),
+      queued: true,
+      queuedAtUtc: nowUtcIso(),
+      queuedAtKst: kstString(),
+    },
+  }
+  items.push(compact)
+  writeQueuedPlayerErrors(items)
+}
+
+async function flushQueuedPlayerErrors(reason = 'flush') {
+  if (!CONFIG.apiBase) return false
+  const items = readQueuedPlayerErrors()
+  if (!items.length) return true
+  try {
+    const response = await fetch(`${CONFIG.apiBase}/api/player-errors`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        store: CONFIG.store || rawStore || lastGoodStore || '',
+        deviceId: CONFIG.deviceId || '',
+        href: location.href,
+        userAgent: navigator.userAgent,
+        reason,
+        errors: items.map(({ queuedAt, ...item }) => item),
+      }),
+    })
+    if (!response.ok) throw new Error(`flush failed ${response.status}`)
+    writeQueuedPlayerErrors([])
+    return true
+  } catch (error) {
+    writeQueuedPlayerErrors(items)
+    return false
+  }
+}
+
 async function reportPlayerError(errorCode, message, extra = {}, level = 'error', minReportMs = 60000) {
   if (!CONFIG.apiBase) return
   const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.cacheUrl || extra.sourceUrl || extra.url || ''}:${message}`
@@ -175,32 +243,38 @@ async function reportPlayerError(errorCode, message, extra = {}, level = 'error'
   const timeUtc = nowUtcIso()
   const timeKst = kstString(timeUtc)
 
+  const payload = {
+    store: CONFIG.store || rawStore || lastGoodStore || '',
+    deviceId: CONFIG.deviceId || '',
+    errorCode,
+    message,
+    level,
+    time: timeUtc,
+    timeUtc,
+    timeKst,
+    href: location.href,
+    userAgent: navigator.userAgent,
+    extra: {
+      ...extra,
+      timeUtc,
+      timeKst,
+      apiBase: CONFIG.apiBase,
+      playerVersion: PLAYER_BUILD,
+    },
+  }
+
   try {
-    await fetch(`${CONFIG.apiBase}/api/player-errors`, {
+    const response = await fetch(`${CONFIG.apiBase}/api/player-errors`, {
       method: 'POST',
       cache: 'no-store',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        store: CONFIG.store || rawStore || lastGoodStore || '',
-        deviceId: CONFIG.deviceId || '',
-        errorCode,
-        message,
-        level,
-        time: timeUtc,
-        timeUtc,
-        timeKst,
-        href: location.href,
-        userAgent: navigator.userAgent,
-        extra: {
-          ...extra,
-          timeUtc,
-          timeKst,
-          apiBase: CONFIG.apiBase,
-          playerVersion: 'v1.7.2-field-log-fix',
-        },
-      }),
+      body: JSON.stringify(payload),
     })
-  } catch (error) {}
+    if (!response.ok) throw new Error(`player-errors ${response.status}`)
+    flushQueuedPlayerErrors('after-single-success')
+  } catch (error) {
+    enqueuePlayerError(payload)
+  }
 }
 
 
@@ -494,7 +568,7 @@ async function resolvePlaylistsFromConfig(data) {
   const urls = data?.playlistUrls || {}
   const bundleUrl = data?.playlistUrl || urls.bundle || ''
 
-  // v1.7.2 현장 안정화:
+  // v1.7.3 현장 안정화:
   // /api/player-state가 이미 R2 snapshot 또는 D1 fallback으로 만든 playlists를 포함합니다.
   // 따라서 기본 운영에서는 public R2 playlist.json을 다시 fetch하지 않습니다.
   // R2 public URL/CORS/순간 네트워크 문제로 LV-SNAPSHOT-FETCH-FAILED가 누적되는 것을 막습니다.
@@ -1115,7 +1189,27 @@ async function syncConfig(reason = 'scheduled') {
       throw createPlayerError('LV-PLAYLIST-EMPTY', '재생 가능한 playlist가 없습니다.')
     }
 
+    const beforeCounts = { left: state.leftItems.length, right: state.rightItems.length }
+    const afterCounts = { left: nextLeft.length, right: nextRight.length }
     const changed = bundleSignature(nextLeft, nextRight) !== bundleSignature(state.leftItems, state.rightItems)
+
+    await reportPlayerError(
+      changed ? 'LV-PLAYLIST-CHANGED' : 'LV-PLAYLIST-CHECK',
+      changed
+        ? `재생목록 변경 감지: left ${beforeCounts.left}→${afterCounts.left}, right ${beforeCounts.right}→${afterCounts.right}`
+        : `재생목록 확인 완료: left ${afterCounts.left}, right ${afterCounts.right}`,
+      {
+        reason,
+        beforeCounts,
+        afterCounts,
+        playlistVersion: data?.playlistVersion || '',
+        stateVersion: data?.stateVersion || '',
+        source: data?.source || '',
+        contentReflect: data?.contentReflect || null,
+      },
+      changed ? 'info' : 'debug',
+      changed ? 60000 : 30 * 60 * 1000
+    )
 
     if (!changed && state.leftItems.length + state.rightItems.length > 0) {
       state.lastSync = kstString()
@@ -1137,6 +1231,16 @@ async function syncConfig(reason = 'scheduled') {
     markGoodConfig()
     hideErrorScreen()
     saveBundle(nextLeft, nextRight)
+
+    await reportPlayerError('LV-PLAYLIST-APPLIED', `새 재생목록 적용 완료: left ${nextLeft.length}, right ${nextRight.length}`, {
+      reason,
+      leftCount: nextLeft.length,
+      rightCount: nextRight.length,
+      playlistVersion: data?.playlistVersion || '',
+      stateVersion: data?.stateVersion || '',
+      source: data?.source || '',
+    }, 'info', 60000)
+    await flushQueuedPlayerErrors('after-playlist-applied')
 
     startPlayback('left')
     window.setTimeout(() => startPlayback('right'), 500)
@@ -1214,7 +1318,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.2', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.3', at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1268,7 +1372,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.7.2-field-log-fix',
+    playerVersion: 'v1.7.3-content-sync-field-log',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1299,6 +1403,7 @@ async function sendHeartbeat() {
         })
       }
       state.lastHeartbeat = data?.device?.lastSeenKst || data?.updatedAtKst || kstString(now)
+      await flushQueuedPlayerErrors('after-heartbeat')
       updateDebug()
       return
     } catch (error) {
@@ -1554,6 +1659,33 @@ function next(side) {
   playItem(side, items[nextIndex])
 }
 
+
+async function checkPlayerBuildVersion(reason = 'poll') {
+  if (!CONFIG.versionPollMs || state.versionReloadPending) return
+  try {
+    const response = await fetch(`./version.json?t=${Date.now()}`, { cache: 'no-store' })
+    if (!response.ok) return
+    const data = await response.json().catch(() => null)
+    const nextBuild = String(data?.build || '').trim()
+    if (!nextBuild || nextBuild === PLAYER_BUILD) return
+    state.versionReloadPending = true
+    await reportPlayerError('LV-PLAYER-VERSION-RELOAD', `Player 새 버전 감지: ${PLAYER_BUILD} → ${nextBuild}`, { reason, currentBuild: PLAYER_BUILD, nextBuild }, 'info', 60 * 60 * 1000)
+    const reload = () => location.reload()
+    if (state.noticeVisible) {
+      setStatus('새 Player 버전 감지: 공지 종료 후 새로고침 예정')
+      setTimeout(reload, 30000)
+    } else {
+      setStatus('새 Player 버전 감지: 새로고침')
+      setTimeout(reload, 1000)
+    }
+  } catch (error) {}
+}
+
+function setupPlayerBuildCheck() {
+  if (!CONFIG.versionPollMs || CONFIG.versionPollMs <= 0) return
+  setInterval(() => checkPlayerBuildVersion('version-interval'), CONFIG.versionPollMs)
+}
+
 function setupDailyRestart() {
   if (!CONFIG.restart) return
   const jitterMs = CONFIG.restartJitterSec > 0 ? Math.floor(Math.random() * CONFIG.restartJitterSec * 1000) : 0
@@ -1636,6 +1768,7 @@ async function boot() {
   await registerServiceWorker()
   setupDebugToggle()
   setupDailyRestart()
+  setupPlayerBuildCheck()
   await updateCacheStatus()
 
   // 정기 호출 등록은 네트워크 성공을 기다리지 않고 먼저 처리합니다.

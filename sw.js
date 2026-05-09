@@ -1,4 +1,4 @@
-const APP_CACHE = 'lv-player-app-v1-7-2-field-log-fix'
+const APP_CACHE = 'lv-player-app-v1-7-3-content-sync-field-log'
 const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
 
 self.addEventListener('install', (event) => {
@@ -24,8 +24,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   if (event.request.method !== 'GET') return
-  // API 요청은 절대 캐시하지 않습니다. heartbeat/app-config/playlist는 항상 최신 네트워크 값이어야 합니다.
-  if (url.pathname.includes('/api/')) return
+  // API/version 요청은 절대 캐시하지 않습니다. heartbeat/app-config/playlist는 항상 최신 네트워크 값이어야 합니다.
+  if (url.pathname.includes('/api/') || url.pathname.endsWith('/version.json')) return
 
   if (url.origin === location.origin && event.request.mode === 'navigate') {
     event.respondWith(

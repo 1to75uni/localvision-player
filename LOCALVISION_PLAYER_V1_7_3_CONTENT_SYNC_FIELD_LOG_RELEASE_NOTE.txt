@@ -1,0 +1,21 @@
+LocalVision Player v1.7.3 CONTENT SYNC FIELD LOG
+
+반영 내용
+1. 재생목록 확인/변경/적용 로그 추가
+   - LV-PLAYLIST-CHECK: 변경 없음 샘플 로그(30분 제한)
+   - LV-PLAYLIST-CHANGED: left/right 개수 또는 목록 변경 감지
+   - LV-PLAYLIST-APPLIED: 새 목록 적용 완료
+2. 오류로그 임시 저장 큐 추가
+   - CMS /api/player-errors 전송 실패 시 localStorage에 최대 50개, 24시간 보관
+   - heartbeat 또는 playlist 적용 성공 시 batch로 재전송
+3. version.json 자동 확인 추가
+   - build 값 변경 시 Player reload
+   - 공지 재생 중이면 즉시 끊지 않고 짧게 보류
+4. snapshotFetch=0 기본 유지
+   - public R2 playlist.json 직접 fetch는 계속 비활성 기본값
+
+제외한 내용
+- 문제 미디어 6시간 격리 기능은 넣지 않았습니다.
+- 기존 “같은 세션에서 반복 실패 콘텐츠 임시 제외”만 유지됩니다.
+
+APP 수정 없음.
