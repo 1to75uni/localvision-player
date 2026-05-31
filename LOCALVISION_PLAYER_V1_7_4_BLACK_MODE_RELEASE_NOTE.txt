@@ -1,4 +1,0 @@
-LocalVision Player v1.7.4 black mode final
-- CMS /api/black-mode 60초 폴링
-- 휴무모드 ON 시 전체 검은 오버레이 표시
-- OFF 또는 자동 만료 시 정상 송출 복귀

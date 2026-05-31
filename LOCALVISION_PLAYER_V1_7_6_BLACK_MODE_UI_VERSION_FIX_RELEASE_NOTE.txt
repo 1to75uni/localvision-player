@@ -1,0 +1,8 @@
+LocalVision Player v1.7.6 BLACK MODE + UI VERSION FIX FINAL
+
+반영 내용
+1. /api/black-mode를 60초마다 확인.
+2. blackMode=true 또는 active=true일 때 전체 검은 오버레이 표시.
+3. CMS에서 해제되면 오버레이 제거 후 정상 송출 복귀.
+4. Player 화면/로그/상태 전송 버전 v1.7.6으로 통일.
+5. APP 수정 없음.

@@ -1,13 +1,13 @@
 {
-  "build": "v1.7.4-black-mode-final",
-  "version": "1.7.3",
-  "updatedAt": "2026-05-31T00:00:00Z",
+  "build": "v1.7.6-black-mode-ui-version-fix",
+  "version": "1.7.5",
+  "updatedAt": "2026-05-31",
   "highlights": [
-    "Logs playlist check/changed/applied events so CMS can see when a new 7th content item is detected",
-    "Queues player error logs in localStorage when CMS is temporarily unreachable and flushes them later in batch",
-    "Keeps snapshotFetch=0 default and trusts /api/player-state payload playlists",
-    "Adds safe version.json build check for automatic reload after Player deployment",
-    "Does NOT add 6-hour media quarantine; existing session-skip behavior remains only for the current session"
+    "Adds CMS-controlled holiday/black mode overlay",
+    "Checks /api/black-mode every 60 seconds",
+    "Supports immediate black mode and weekly scheduled black mode from CMS",
+    "Keeps APP unchanged and applies black mode only inside Player screen",
+    "Maintains v1.7.3 content sync and field log behavior"
   ],
-  "notes": "Content sync field-log build. Works with CMS v1.8.3 and APP v9.2 without APP changes."
+  "notes": "Black mode schedule build. Works with CMS v1.9.4 and APP v9.2 without APP changes."
 }
