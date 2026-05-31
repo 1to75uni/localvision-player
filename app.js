@@ -18,6 +18,7 @@ const CONFIG = {
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
+  blackModePollMs: Number(params.get('blackModePollMs') || params.get('blackPollMs') || 60000),
   versionPollMs: Number(params.get('versionPoll') || 600000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
@@ -60,10 +61,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.7.3-content-sync-field-log'
-const MEDIA_CACHE = 'lv-media-bundle-v1-7-3'
-const META_KEY = 'lv-media-bundle-meta-v1-7-3'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-3-${CONFIG.store || CONFIG.appId}`
+const PLAYER_BUILD = 'v1.7.4-black-mode-final'
+const MEDIA_CACHE = 'lv-media-bundle-v1-7-4'
+const META_KEY = 'lv-media-bundle-meta-v1-7-4'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-4-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -117,7 +118,12 @@ const state = {
   sessionBlacklist: {},
   lastPlaylistCheckReportAt: 0,
   versionReloadPending: false,
+  blackMode: false,
+  blackModeVersion: '',
+  blackModeReason: '',
+  blackModeUntilKst: '',
 }
+
 
 
 const RECOVERY_KEY = `lv-player-recovery-${CONFIG.store || CONFIG.appId || 'unknown'}`
@@ -1158,6 +1164,89 @@ async function showNoticeOverlay(notice, reason = 'poll') {
   }
 }
 
+
+function normalizeBlackModePayload(data = {}) {
+  const source = data.blackMode && typeof data.blackMode === 'object'
+    ? data.blackMode
+    : (data.store && Object.prototype.hasOwnProperty.call(data.store, 'blackMode') ? data.store : data)
+  const enabled = Boolean(source.enabled ?? source.blackMode ?? data.displayMode === 'black')
+  const until = String(source.until || source.blackModeUntil || source.blackModeUntilUtc || source.untilUtc || '').trim()
+  const reason = String(source.reason || source.blackModeReason || '').trim()
+  const untilKst = String(source.untilKst || source.blackModeUntilKst || '').trim()
+  const updatedAt = String(source.updatedAt || source.blackModeUpdatedAt || data.updatedAt || '').trim()
+  return {
+    enabled,
+    until,
+    untilKst,
+    reason,
+    updatedAt,
+    version: `${enabled ? 'on' : 'off'}:${until}:${updatedAt}`,
+  }
+}
+
+function ensureBlackModeOverlay() {
+  let overlay = document.getElementById('lvBlackModeOverlay')
+  if (overlay) return overlay
+  overlay = document.createElement('div')
+  overlay.id = 'lvBlackModeOverlay'
+  overlay.setAttribute('aria-hidden', 'true')
+  overlay.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'z-index:2147483000',
+    'background:#000',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'color:rgba(255,255,255,.18)',
+    'font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    'font-size:18px',
+    'letter-spacing:-.02em',
+    'pointer-events:none',
+  ].join(';')
+  const label = document.createElement('div')
+  label.id = 'lvBlackModeLabel'
+  label.style.cssText = 'position:absolute;bottom:24px;right:28px;opacity:0;font-weight:700;font-size:12px;'
+  overlay.appendChild(label)
+  document.body.appendChild(overlay)
+  return overlay
+}
+
+function applyBlackMode(payload = {}, reason = 'unknown') {
+  const mode = normalizeBlackModePayload(payload)
+  const overlay = ensureBlackModeOverlay()
+  const changed = state.blackMode !== mode.enabled || state.blackModeVersion !== mode.version
+  state.blackMode = mode.enabled
+  state.blackModeVersion = mode.version
+  state.blackModeReason = mode.reason
+  state.blackModeUntilKst = mode.untilKst
+  overlay.style.display = mode.enabled ? 'flex' : 'none'
+  const label = overlay.querySelector('#lvBlackModeLabel')
+  if (label) label.textContent = mode.enabled ? `LocalVision 휴무모드${mode.untilKst ? ' · ' + mode.untilKst + ' 자동 해제' : ''}` : ''
+  if (changed) {
+    setStatus(mode.enabled ? '휴무모드 ON · 검은 화면 표시' : '휴무모드 OFF · 정상 송출')
+    reportPlayerError(mode.enabled ? 'LV-BLACK-MODE-ON' : 'LV-BLACK-MODE-OFF', mode.enabled ? 'CMS 휴무모드 명령으로 검은 화면을 표시합니다.' : 'CMS 휴무모드가 해제되어 정상 송출합니다.', { reason, blackMode: mode }, 'info', 60000)
+  }
+  updateDebug()
+  return mode.enabled
+}
+
+async function checkBlackMode(reason = 'poll') {
+  if (!CONFIG.apiBase || !CONFIG.store) return false
+  try {
+    const data = await fetchLiteEndpoint('/api/black-mode', reason)
+    return applyBlackMode(data, reason)
+  } catch (error) {
+    try {
+      const data = await fetchPlayerState('black-mode-fallback')
+      return applyBlackMode(data, reason + ':fallback')
+    } catch (_) {
+      reportPlayerError('LV-BLACK-MODE-CHECK-FAILED', error?.message || '휴무모드 확인 실패', { reason }, 'warning', 5 * 60 * 1000)
+      return state.blackMode
+    }
+  }
+}
+
 async function checkNotice(reason = 'poll') {
   if (!CONFIG.apiBase || !CONFIG.store) return
   try {
@@ -1176,6 +1265,8 @@ async function syncConfig(reason = 'scheduled') {
   try {
     setStatus('CMS 재생목록 확인중...')
     const data = await fetchPlayerState(reason)
+
+    applyBlackMode(data, reason)
 
     const commandHandled = await handleRemoteCommand(data.devices || [], data.command)
     if (commandHandled) return
@@ -1372,11 +1463,11 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.7.3-content-sync-field-log',
+    playerVersion: 'v1.7.4-black-mode-final',
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
-    playStatus: state.noticeVisible ? 'notice' : 'playing',
+    playStatus: state.blackMode ? 'black-mode' : (state.noticeVisible ? 'notice' : 'playing'),
     cacheStatus: state.cacheStatus || '',
     noticeStatus: state.noticeVisible ? 'active' : 'idle',
     errorCount: state.playbackFailureCount || 0,
@@ -1746,6 +1837,9 @@ function startOperationIntervals() {
   if (CONFIG.noticePollMs > 0) {
     setInterval(() => checkNotice('notice-interval'), CONFIG.noticePollMs)
   }
+  if (CONFIG.blackModePollMs > 0) {
+    setInterval(() => checkBlackMode('black-mode-interval'), CONFIG.blackModePollMs)
+  }
   if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
     setInterval(() => checkAppConfig('app-config-interval'), CONFIG.appConfigPollMs)
   }
@@ -1761,6 +1855,7 @@ function runImmediateApiBoot() {
   if (CONFIG.appId) fireAndForget('app-config-startup', () => checkAppConfig('startup-immediate'))
   fireAndForget('player-state-startup', () => syncConfig('startup-immediate'))
   if (CONFIG.noticePollMs > 0) fireAndForget('notice-startup', () => checkNotice('startup-immediate'))
+  if (CONFIG.blackModePollMs > 0) fireAndForget('black-mode-startup', () => checkBlackMode('startup-immediate'))
   fireAndForget('heartbeat', () => sendHeartbeat())
 }
 

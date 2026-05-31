@@ -1,7 +1,7 @@
 {
-  "build": "v1.7.3-content-sync-field-log",
+  "build": "v1.7.4-black-mode-final",
   "version": "1.7.3",
-  "updatedAt": "2026-05-09",
+  "updatedAt": "2026-05-31T00:00:00Z",
   "highlights": [
     "Logs playlist check/changed/applied events so CMS can see when a new 7th content item is detected",
     "Queues player error logs in localStorage when CMS is temporarily unreachable and flushes them later in batch",
