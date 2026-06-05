@@ -1,13 +1,13 @@
 {
-  "build": "v1.7.6-black-mode-ui-version-fix",
-  "version": "1.7.5",
-  "updatedAt": "2026-05-31",
+  "build": "v1.8.0-schedule-playlist-mvp",
+  "version": "1.8.0",
+  "updatedAt": "2026-06-05",
   "highlights": [
-    "Adds CMS-controlled holiday/black mode overlay",
-    "Checks /api/black-mode every 60 seconds",
-    "Supports immediate black mode and weekly scheduled black mode from CMS",
-    "Keeps APP unchanged and applies black mode only inside Player screen",
-    "Maintains v1.7.3 content sync and field log behavior"
+    "Adds time-based playlist scheduling engine",
+    "Supports weekday, start time, end time, playlist group selection",
+    "Evaluates schedules locally in Player every 30 seconds",
+    "Keeps APP unchanged and preserves black mode priority",
+    "Maintains v1.7.6 black mode and v1.7.3 content sync behavior"
   ],
-  "notes": "Black mode schedule build. Works with CMS v1.9.4 and APP v9.2 without APP changes."
+  "notes": "Schedule playlist MVP. Works with CMS v2.0.0 and APP v9.2/v9.x without APP changes."
 }

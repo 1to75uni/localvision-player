@@ -1,0 +1,17 @@
+LocalVision Player v1.8.0 Schedule Playlist MVP
+
+핵심 변경사항
+1. /api/player-state의 playlistGroups, playlistSchedules payload를 인식합니다.
+2. Player가 KST 기준 현재 요일/시간을 계산해 활성 플레이리스트 그룹을 선택합니다.
+3. 스케줄 판단은 30초마다 TV 내부에서 수행하므로 CMS를 매분 호출하지 않습니다.
+4. 오프라인 대비를 위해 마지막 스케줄 payload를 localStorage에 저장합니다.
+5. 스케줄이 없거나 조건에 맞지 않으면 기본 플레이리스트로 fallback합니다.
+6. 기존 블랙모드/휴무모드, 공지, 명령, heartbeat 구조는 유지됩니다.
+
+권장 URL 파라미터
+- heartbeat=300000
+- commandPoll=300000
+- noticePollMs=60000
+- playerStatePoll 또는 contentCheck=480000
+- scheduleCheckMs=30000
+- cacheMax=50 권장

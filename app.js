@@ -19,6 +19,7 @@ const CONFIG = {
   noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
   blackModePollMs: Number(params.get('blackModePoll') || params.get('blackModePollMs') || 60000),
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
+  scheduleCheckMs: Number(params.get('scheduleCheck') || params.get('scheduleCheckMs') || 30000),
   versionPollMs: Number(params.get('versionPoll') || 600000),
   cacheMax: Number(params.get('cacheMax') || 20),
   restart: params.get('restart') || '',
@@ -61,10 +62,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.7.6-black-mode-ui-version-fix'
-const MEDIA_CACHE = 'lv-media-bundle-v1-7-5'
-const META_KEY = 'lv-media-bundle-meta-v1-7-5'
-const PLAYLIST_KEY = `lv-playlist-bundle-v1-7-5-${CONFIG.store || CONFIG.appId}`
+const PLAYER_BUILD = 'v1.8.0-schedule-playlist-mvp'
+const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
+const META_KEY = 'lv-media-bundle-meta-v1-8-0'
+const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
+const SCHEDULE_KEY = `lv-schedule-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
 const handledCommandKey = `lv-handled-command-${CONFIG.deviceId || CONFIG.store || 'unknown'}`
 const bootIssues = []
 if (!rawStore) {
@@ -121,6 +123,12 @@ const state = {
   blackModeActive: false,
   blackModeReason: 'off',
   blackModeUpdatedAt: '',
+  playlistGroups: {},
+  playlistSchedules: [],
+  activePlaylistKey: '',
+  defaultPlaylistKey: 'default',
+  scheduleStatus: 'off',
+  lastScheduleEvalAt: '',
 }
 
 
@@ -422,7 +430,7 @@ function updateDebug() {
   els.dbgRight.textContent = String(state.rightItems.length)
   els.dbgSync.textContent = state.lastSync || '-'
   els.dbgHeartbeat.textContent = state.lastHeartbeat || '-'
-  els.dbgBundle.textContent = state.bundleStatus
+  els.dbgBundle.textContent = state.bundleStatus + (state.scheduleStatus ? ` · ${state.scheduleStatus}` : '')
   els.dbgCache.textContent = state.cacheStatus
 }
 
@@ -617,9 +625,169 @@ async function fetchSnapshot(url, label = 'snapshot') {
   }
 }
 
+function parseScheduleDays(value) {
+  if (Array.isArray(value)) return value.map(Number).filter((v) => v >= 0 && v <= 6)
+  try {
+    const parsed = JSON.parse(String(value || '[]'))
+    return Array.isArray(parsed) ? parsed.map(Number).filter((v) => v >= 0 && v <= 6) : []
+  } catch { return [] }
+}
+
+function timeMinutes(value = '') {
+  const m = String(value || '00:00').match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return 0
+  return Math.max(0, Math.min(23, Number(m[1]))) * 60 + Math.max(0, Math.min(59, Number(m[2])))
+}
+
+function kstParts(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value)
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  return {
+    day: kst.getUTCDay(),
+    minutes: kst.getUTCHours() * 60 + kst.getUTCMinutes(),
+    time: `${String(kst.getUTCHours()).padStart(2, '0')}:${String(kst.getUTCMinutes()).padStart(2, '0')}`,
+  }
+}
+
+function isScheduleActiveAt(schedule = {}, value = new Date()) {
+  if (!schedule || schedule.enabled === false) return false
+  const parts = kstParts(value)
+  const days = parseScheduleDays(schedule.days || schedule.daysJson)
+  if (!days.includes(parts.day)) return false
+  const start = timeMinutes(schedule.startTime)
+  const end = timeMinutes(schedule.endTime)
+  const now = parts.minutes
+  if (start === end) return true
+  if (start < end) return now >= start && now < end
+  return now >= start || now < end
+}
+
+function pickActiveSchedule(schedules = [], value = new Date()) {
+  return [...(schedules || [])]
+    .filter((schedule) => schedule.enabled !== false && isScheduleActiveAt(schedule, value))
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))[0] || null
+}
+
+function normalizePlaylistGroups(groups = {}) {
+  if (!groups || typeof groups !== 'object') return {}
+  const output = {}
+  Object.entries(groups).forEach(([key, group]) => {
+    if (!group) return
+    const gKey = String(group.key || group.slug || key || group.id || '').trim()
+    if (!gKey) return
+    output[gKey] = {
+      ...group,
+      key: gKey,
+      id: group.id || gKey,
+      slug: group.slug || gKey,
+      name: group.name || '플레이리스트',
+      left: Array.isArray(group.left) ? group.left : (Array.isArray(group.items) ? group.items : []),
+    }
+  })
+  return output
+}
+
+function findGroupByIdOrKey(groups = {}, idOrKey = '') {
+  const target = String(idOrKey || '').trim()
+  if (!target) return null
+  if (groups[target]) return groups[target]
+  return Object.values(groups).find((group) => group.id === target || group.slug === target || group.key === target) || null
+}
+
+function selectScheduledGroup(groups = {}, schedules = [], defaultKey = 'default', value = new Date()) {
+  const activeSchedule = pickActiveSchedule(schedules, value)
+  const bySchedule = activeSchedule ? findGroupByIdOrKey(groups, activeSchedule.playlistGroupId) : null
+  const fallback = groups[defaultKey] || Object.values(groups).find((group) => group.isDefault) || Object.values(groups)[0] || null
+  const useScheduleGroup = bySchedule && Array.isArray(bySchedule.left) && bySchedule.left.length > 0
+  return { group: useScheduleGroup ? bySchedule : fallback, schedule: useScheduleGroup ? activeSchedule : null }
+}
+
+function saveScheduleBundle(rightItems = []) {
+  try {
+    localStorage.setItem(SCHEDULE_KEY, JSON.stringify({
+      playlistGroups: state.playlistGroups,
+      playlistSchedules: state.playlistSchedules,
+      defaultPlaylistKey: state.defaultPlaylistKey,
+      rightItems,
+      savedAt: new Date().toISOString(),
+    }))
+  } catch {}
+}
+
+function loadSavedScheduleBundle() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || 'null')
+    if (!saved || !saved.playlistGroups) return false
+    state.playlistGroups = normalizePlaylistGroups(saved.playlistGroups)
+    state.playlistSchedules = Array.isArray(saved.playlistSchedules) ? saved.playlistSchedules : []
+    state.defaultPlaylistKey = saved.defaultPlaylistKey || 'default'
+    if (Array.isArray(saved.rightItems) && saved.rightItems.length) state.rightItems = saved.rightItems
+    state.scheduleStatus = `saved ${saved.savedAt || ''}`
+    return Object.keys(state.playlistGroups).length > 0
+  } catch { return false }
+}
+
+function captureSchedulePayload(data = {}) {
+  const groups = normalizePlaylistGroups(data.playlistGroups || {})
+  const schedules = Array.isArray(data.playlistSchedules) ? data.playlistSchedules : []
+  if (!Object.keys(groups).length) return false
+  state.playlistGroups = groups
+  state.playlistSchedules = schedules
+  state.defaultPlaylistKey = data.defaultPlaylistKey || 'default'
+  state.scheduleStatus = `${Object.keys(groups).length}개 그룹 · ${schedules.length}개 스케줄`
+  state.lastScheduleEvalAt = kstString()
+  return true
+}
+
+async function applyLocalSchedule(reason = 'schedule-local') {
+  if (!Object.keys(state.playlistGroups || {}).length) return false
+  const selected = selectScheduledGroup(state.playlistGroups, state.playlistSchedules, state.defaultPlaylistKey)
+  const group = selected.group
+  if (!group || !Array.isArray(group.left) || !group.left.length) return false
+  const nextLeft = normalizeItems(group.left)
+  const nextRight = state.rightItems || []
+  const nextKey = group.key || group.slug || group.id || 'default'
+  state.lastScheduleEvalAt = kstString()
+  state.scheduleStatus = selected.schedule
+    ? `${group.name} · ${selected.schedule.name || '스케줄'} · ${kstParts().time}`
+    : `${group.name} · 기본 · ${kstParts().time}`
+  if (state.activePlaylistKey === nextKey && playlistSignature(nextLeft) === playlistSignature(state.leftItems)) {
+    updateDebug()
+    return false
+  }
+  if (CONFIG.bundleMode === 'cache' && CONFIG.activateWhenCached) await ensureBundleCached(nextLeft, nextRight)
+  state.leftItems = nextLeft
+  state.leftIndex = 0
+  state.activePlaylistKey = nextKey
+  saveBundle(state.leftItems, state.rightItems)
+  saveScheduleBundle(state.rightItems)
+  startPlayback('left')
+  await reportPlayerError('LV-SCHEDULE-PLAYLIST-SWITCH', `시간대별 송출 전환: ${group.name}`, {
+    reason,
+    playlistKey: nextKey,
+    schedule: selected.schedule ? selected.schedule.name : 'default',
+    leftCount: nextLeft.length,
+  }, 'info', 60000)
+  setStatus(`시간대별 송출: ${group.name}`)
+  updateDebug()
+  return true
+}
+
 async function resolvePlaylistsFromConfig(data) {
   let left = Array.isArray(data?.playlists?.left) ? data.playlists.left : []
   let right = Array.isArray(data?.playlists?.right) ? data.playlists.right : []
+
+  const hasSchedulePayload = captureSchedulePayload(data)
+  if (hasSchedulePayload) {
+    const selected = selectScheduledGroup(state.playlistGroups, state.playlistSchedules, state.defaultPlaylistKey)
+    if (selected.group && Array.isArray(selected.group.left) && selected.group.left.length) {
+      left = selected.group.left
+      state.activePlaylistKey = selected.group.key || selected.group.slug || selected.group.id || 'default'
+      state.scheduleStatus = selected.schedule
+        ? `${selected.group.name} · ${selected.schedule.name || '스케줄'} · ${kstParts().time}`
+        : `${selected.group.name} · 기본 · ${kstParts().time}`
+    }
+  }
 
   const urls = data?.playlistUrls || {}
   const bundleUrl = data?.playlistUrl || urls.bundle || ''
@@ -641,6 +809,11 @@ async function resolvePlaylistsFromConfig(data) {
     const bRight = extractPlaylistItems(bundle, 'right')
     if (bLeft.length) left = bLeft
     if (bRight.length) right = bRight
+    captureSchedulePayload(bundle)
+    if (Object.keys(state.playlistGroups || {}).length) {
+      const selected = selectScheduledGroup(state.playlistGroups, state.playlistSchedules, state.defaultPlaylistKey)
+      if (selected.group?.left?.length) left = selected.group.left
+    }
   }
 
   // 공통 right는 여러 매장이 공유하므로 bundle이 있어도 별도 right snapshot이 있으면 우선 적용합니다.
@@ -652,7 +825,7 @@ async function resolvePlaylistsFromConfig(data) {
     ])
     const sLeft = extractPlaylistItems(leftDoc, 'left')
     const sRight = extractPlaylistItems(rightDoc, 'right')
-    if (sLeft.length) left = sLeft
+    if (sLeft.length && !Object.keys(state.playlistGroups || {}).length) left = sLeft
     if (sRight.length) right = sRight
   }
 
@@ -1266,6 +1439,8 @@ async function syncConfig(reason = 'scheduled') {
         stateVersion: data?.stateVersion || '',
         source: data?.source || '',
         contentReflect: data?.contentReflect || null,
+        scheduleStatus: state.scheduleStatus || '',
+        activePlaylistKey: state.activePlaylistKey || '',
       },
       changed ? 'info' : 'debug',
       changed ? 60000 : 30 * 60 * 1000
@@ -1291,6 +1466,7 @@ async function syncConfig(reason = 'scheduled') {
     markGoodConfig()
     hideErrorScreen()
     saveBundle(nextLeft, nextRight)
+    saveScheduleBundle(nextRight)
 
     await reportPlayerError('LV-PLAYLIST-APPLIED', `새 재생목록 적용 완료: left ${nextLeft.length}, right ${nextRight.length}`, {
       reason,
@@ -1299,6 +1475,8 @@ async function syncConfig(reason = 'scheduled') {
       playlistVersion: data?.playlistVersion || '',
       stateVersion: data?.stateVersion || '',
       source: data?.source || '',
+      scheduleStatus: state.scheduleStatus || '',
+      activePlaylistKey: state.activePlaylistKey || '',
     }, 'info', 60000)
     await flushQueuedPlayerErrors('after-playlist-applied')
 
@@ -1378,7 +1556,7 @@ async function handleRemoteCommand(devices, commandFromState = null) {
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
-          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: 'player-v1.7.6', at: nowUtcIso(),
+          command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: PLAYER_BUILD, at: nowUtcIso(),
         }))
         return true
       } catch (error) {
@@ -1432,7 +1610,7 @@ async function sendHeartbeat() {
     online: true,
     lastSeen: now,
     lastSeenKst: kstString(now),
-    playerVersion: 'v1.7.6-black-mode-ui-version-fix',
+    playerVersion: PLAYER_BUILD,
     appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
     appVersion: CONFIG.appVersion || '',
     currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
@@ -1803,6 +1981,9 @@ function startOperationIntervals() {
   if (CONFIG.playerStatePollMs > 0) {
     setInterval(() => syncConfig('player-state-interval'), CONFIG.playerStatePollMs)
   }
+  if (CONFIG.scheduleCheckMs > 0) {
+    setInterval(() => applyLocalSchedule('schedule-interval'), CONFIG.scheduleCheckMs)
+  }
   if (CONFIG.noticePollMs > 0) {
     setInterval(() => checkNotice('notice-interval'), CONFIG.noticePollMs)
   }
@@ -1846,7 +2027,9 @@ async function boot() {
   })
 
   // 저장된 콘텐츠가 있으면 API 응답을 기다리지 않고 즉시 재생합니다.
+  loadSavedScheduleBundle()
   if (loadSavedBundle()) {
+    applyLocalSchedule('boot-saved-schedule')
     startPlayback('left')
     window.setTimeout(() => startPlayback('right'), 500)
     setStatus('저장된 캐시 재생 시작 · API 즉시 확인 중')

@@ -1,6 +1,6 @@
-LocalVision Player v1.7.6 BLACK MODE SCHEDULE
-- CMS Device Control Panel의 휴무모드/블랙모드와 연동
-- /api/black-mode를 60초마다 확인
-- 즉시 휴무, 오늘 23:59 자동 해제, 정기 요일/시간 스케줄 지원
-- APP 수정 없이 Player 전체 검은 오버레이로 처리
-- v1.7.3 콘텐츠 동기화/현장 로그 구조 유지
+LocalVision Player v1.8.0 SCHEDULE PLAYLIST MVP
+- CMS v2.0.0의 시간대별 송출 관리와 연동
+- 요일 + 시작시간 + 종료시간 + 플레이리스트 그룹 기준 자동 전환
+- Player 내부에서 30초마다 로컬 스케줄 판단
+- CMS/API 확인은 기존 player-state 주기를 유지해 요청 수 증가 최소화
+- 휴무모드/블랙모드가 최우선이며 APP 수정 없음
