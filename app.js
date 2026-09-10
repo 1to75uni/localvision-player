@@ -68,7 +68,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.9.0-stable-playback'
+const PLAYER_BUILD = 'v1.9.1-navigation-hotfix'
 const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
 const META_KEY = 'lv-media-bundle-meta-v1-8-0'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
@@ -478,7 +478,7 @@ function updateDebug() {
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return
-  try { await navigator.serviceWorker.register('./sw.js') } catch (error) {}
+  try { await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}) } catch (error) {}
 }
 
 async function fetchJson(url, options = {}) {

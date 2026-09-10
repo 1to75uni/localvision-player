@@ -1,12 +1,11 @@
 {
-  "build": "v1.9.0-stable-playback",
-  "version": "1.9.0",
+  "build": "v1.9.1-navigation-hotfix",
+  "version": "1.9.1",
   "updatedAt": "2026-09-10",
   "highlights": [
-    "Chunked SHA-256 origin verification and targeted cache repair",
-    "Atomic saved playlist journal with previous bundle retention",
-    "Upcoming schedule prefetch and changed-lane-only activation",
-    "CMS preparation and legacy integrity progress"
+    "Normalize redirected cached HTML before responding to navigations",
+    "Network fallback when document cache cannot be read",
+    "Preserve media cache and verified playlist journal"
   ],
-  "notes": "Web Player release. Android APP and physical-device qualification are separate."
+  "notes": "Web Player hotfix. Physical WebView confirmation pending."
 }

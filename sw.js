@@ -1,30 +1,56 @@
-const APP_CACHE = 'lv-player-app-v1-9-0-stable';
-const APP_ASSETS = ['./index.html','./style.css','./integrity.js?v=1.9.0','./playlist-store.js?v=1.9.0','./runtime.js?v=1.9.0','./app.js?v=1.9.0','./loading.jpg'];
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(APP_CACHE).then(cache=>cache.addAll(APP_ASSETS)).then(()=>self.skipWaiting()));
+/* HTML fetched through redirects must not be replayed as redirected navigation responses. */
+const APP_CACHE = 'lv-player-app-v1-9-1-navigation-hotfix';
+const APP_ASSETS = ['./index.html','./style.css','./integrity.js?v=1.9.1','./playlist-store.js?v=1.9.1','./runtime.js?v=1.9.1','./app.js?v=1.9.1','./loading.jpg'];
+function navigationDocument(response) {
+  if(!response || !response.ok || response.status===206 || ['opaque','opaqueredirect','error'].includes(response.type)) throw new Error('Player document unavailable');
+  const headers=new Headers(response.headers);
+  if(!/text\/html/i.test(headers.get('content-type') || '')) throw new Error('Player document is not HTML');
+  // Construct a fresh Response: no inherited redirect history/URL list.
+  // Body streams already contain decoded bytes, so don't replay transport compression headers.
+  headers.delete('content-encoding');headers.delete('content-length');headers.delete('transfer-encoding');
+  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+}
+self.addEventListener('install',event=>{
+  event.waitUntil((async()=>{
+    const cache=await caches.open(APP_CACHE);
+    await cache.addAll(APP_ASSETS);
+    const html=await cache.match('./index.html');
+    await cache.put('./index.html',navigationDocument(html));
+    await self.skipWaiting();
+  })());
 });
-self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
+self.addEventListener('activate',event=>{
+  event.waitUntil((async()=>{
+    // Cleanup failure must not prevent the repaired worker from taking control.
+    try {const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).map(k=>caches.delete(k).catch(()=>false)));}catch(_){}
+    await self.clients.claim();
+  })());
 });
-self.addEventListener('fetch', event => {
+async function documentForNavigation(request) {
+  try {
+    const cache=await caches.open(APP_CACHE),installed=await cache.match('./index.html');
+    if(installed)return navigationDocument(installed);
+  }catch(_){}
+  // Read the static HTML, preserving the incoming URL (store/id/apiBase) in the browser.
+  // Only successful readable same-origin HTML may be turned into a navigation response.
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+  try {
+    const response=await fetch(new URL('./index.html',self.location.href).href,{cache:'no-store',redirect:'follow',credentials:'same-origin',signal:controller.signal});
+    if(response.url && new URL(response.url).origin!==self.location.origin)throw new Error('Unexpected document origin');
+    return navigationDocument(response);
+  }catch(_){
+    return new Response('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>LocalVision 연결 확인</title><body style="background:#111;color:#fff;font:24px sans-serif;padding:5vw"><p>LocalVision 화면 연결을 복구하고 있습니다.</p><p>저장된 콘텐츠를 삭제하지 말고 네트워크 연결을 확인해 주세요.</p><button onclick="location.reload()" style="font:inherit">다시 연결</button><script>setTimeout(()=>location.reload(),30000)</script></body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-lv-recovery':'document-unavailable'}});
+  }finally{clearTimeout(timer);}
+}
+self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(event.request.method!=='GET' || url.origin!==self.location.origin || url.pathname.includes('/api/') || url.pathname.endsWith('/version.json'))return;
-  if(event.request.mode==='navigate') {
-    event.respondWith((async()=>{
-      const cache=await caches.open(APP_CACHE);
-      const installed=await cache.match('./index.html');
-      if(installed)return installed;
-      return fetch(event.request,{cache:'no-store'});
-    })());
-    return;
-  }
+  if(event.request.mode==='navigate') {event.respondWith(documentForNavigation(event.request));return;}
   if(!APP_ASSETS.some(asset=>new URL(asset,self.location.href).href===url.href))return;
   event.respondWith((async()=>{
-    const cache=await caches.open(APP_CACHE),hit=await cache.match(event.request);
-    // Versioned application assets are activated together by installation.
-    if(hit)return hit;
+    let cache;try{cache=await caches.open(APP_CACHE);const hit=await cache.match(event.request);if(hit)return hit;}catch(_){}
     const response=await fetch(event.request);
-    if(response.ok)await cache.put(event.request,response.clone());
+    if(response.ok && cache){try{await cache.put(event.request,response.clone());}catch(_){}}
     return response;
   })());
 });

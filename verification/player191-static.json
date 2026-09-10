@@ -1,0 +1,60 @@
+{
+  "node": "v24.19.0",
+  "syntax_checked": 10,
+  "syntax_files": [
+    "app.js",
+    "integrity.js",
+    "playlist-store.js",
+    "runtime.js",
+    "sw.js",
+    "tests/app.test.cjs",
+    "tests/harness.cjs",
+    "tests/playlist-store.test.cjs",
+    "tests/runtime.test.cjs",
+    "tests/sw.test.cjs"
+  ],
+  "versions_and_html_assets": "passed",
+  "playback_and_integrity_modules_unchanged": true,
+  "changes_from_v190": [
+    {
+      "file": "DEPLOY_AND_OPERATIONS_KO.md",
+      "change": "modified"
+    },
+    {
+      "file": "README.md",
+      "change": "modified"
+    },
+    {
+      "file": "_headers",
+      "change": "added"
+    },
+    {
+      "file": "app.js",
+      "change": "modified"
+    },
+    {
+      "file": "index.html",
+      "change": "modified"
+    },
+    {
+      "file": "package.json",
+      "change": "modified"
+    },
+    {
+      "file": "sw.js",
+      "change": "modified"
+    },
+    {
+      "file": "tests/fixtures/sw-v190-navigation.txt",
+      "change": "added"
+    },
+    {
+      "file": "tests/sw.test.cjs",
+      "change": "modified"
+    },
+    {
+      "file": "version.json",
+      "change": "modified"
+    }
+  ]
+}
