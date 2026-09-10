@@ -1,0 +1,118 @@
+✔ full Player boot loads both playlists, caches media and sends truthful health (96.066803ms)
+✔ command poll is active and ordinary refresh preserves media cache (153.835443ms)
+✔ notice and black mode share suspension ownership and resume both sides (89.333724ms)
+✔ log storage rejection retains logs while playback continues (111.168964ms)
+Error: offline
+    at ctx.fetch (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:27:24)
+    at Object.timedFetch (evalmachine.<anonymous>:16:35)
+    at fetchJson (app.js:491:30)
+    at async fetchPlayerState (app.js:560:12)
+    at async syncConfig (app.js:1340:18)
+    at async runExclusive (app.js:321:15) {
+  url: 'https://cms.test/api/player-state?store=qa&deviceId=web_f4d60230-2925-4070-a5c5-ef8fbe6aca71&t=1700000010000&reason=player-state-interval',
+  endpoint: '/api/player-state'
+}
+Error: offline
+    at ctx.fetch (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:27:24)
+    at Object.timedFetch (evalmachine.<anonymous>:16:35)
+    at fetchJson (app.js:491:30)
+    at async fetchPlayerState (app.js:560:12)
+    at async syncConfig (app.js:1340:18)
+    at async runExclusive (app.js:321:15) {
+  url: 'https://cms.test/api/player-state?store=qa&deviceId=web_f4d60230-2925-4070-a5c5-ef8fbe6aca71&t=1700000020000&reason=player-state-interval',
+  endpoint: '/api/player-state'
+}
+Error: offline
+    at ctx.fetch (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:27:24)
+    at Object.timedFetch (evalmachine.<anonymous>:16:35)
+    at fetchJson (app.js:491:30)
+    at async fetchPlayerState (app.js:560:12)
+    at async syncConfig (app.js:1340:18)
+    at async runExclusive (app.js:321:15) {
+  url: 'https://cms.test/api/player-state?store=qa&deviceId=web_f4d60230-2925-4070-a5c5-ef8fbe6aca71&t=1700000030000&reason=player-state-interval',
+  endpoint: '/api/player-state'
+}
+✔ offline state sync keeps the last valid media and playlist (436.816243ms)
+✔ left-only playlist changes keep right playback generation intact (76.323064ms)
+Error: 파일 구간 1의 SHA-256 불일치
+    at fail (evalmachine.<anonymous>:5:66)
+    at flush (evalmachine.<anonymous>:32:140)
+    at async Object.inspect (evalmachine.<anonymous>:38:11)
+    at async verify (evalmachine.<anonymous>:21:19)
+    at async evalmachine.<anonymous>:42:18
+    at async Object.timedFetch (evalmachine.<anonymous>:17:24)
+    at async VerifiedFiles.prepare (evalmachine.<anonymous>:37:18)
+    at async ensureBundleCached (app.js:1030:16)
+    at async syncConfig (app.js:1393:5)
+    at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:89:2) {
+  code: 'LV-INTEGRITY-MISMATCH'
+}
+✔ incorrect expected file digest blocks whole candidate and preserves active journal (77.155932ms)
+✔ next schedule prefetch is ready before switch and switch works offline (76.991063ms)
+✔ boot selects retained previous bundle when active files are missing (81.803933ms)
+✔ overnight player selection agrees with start-day semantics (78.252599ms)
+Error: offline
+    at ctx.fetch (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:27:24)
+    at Object.timedFetch (evalmachine.<anonymous>:16:35)
+    at fetchJson (app.js:491:30)
+    at async fetchPlayerState (app.js:560:12)
+    at async syncConfig (app.js:1340:18) {
+  url: 'https://cms.test/api/player-state?store=qa&deviceId=web_8af569bd-65cf-4353-88f2-745c10f4a41d&t=1700000000000&reason=startup-immediate',
+  endpoint: '/api/player-state'
+}
+✔ new app context restores a committed bundle offline after restart (162.374166ms)
+Error: 재생목록 적용 기록 저장 실패: quota injected
+    at error (evalmachine.<anonymous>:3:43)
+    at Journal.commit (evalmachine.<anonymous>:71:18)
+    at commitPrepared (app.js:254:16)
+    at syncConfig (app.js:1397:5)
+    at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_next/LocalVision_Player_v1.9.0_VERIFIED_PLAYLIST/tests/app.test.cjs:119:142)
+    at async Test.run (node:internal/test_runner/test:1389:7)
+    at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+  code: 'LV-STORAGE-WRITE'
+}
+✔ journal quota refusal leaves both live lanes and last saved bundle untouched (77.44247ms)
+✔ chunk SHA-256 matches independent Node hashes at boundaries (24.867679ms)
+✔ truncated and same-length corrupt files fail origin verification (3.47635ms)
+✔ tampered manifest revision and malformed chunk counts are rejected (1.913941ms)
+✔ verified downloads are reused without fetching unchanged bytes (6.86594ms)
+✔ corrupt existing cache is repaired only for affected file (3.756103ms)
+✔ bad origin bytes retry at most twice and never enter committed cache (4.073012ms)
+✔ legacy receipt is local-only, and corruption is detected after restart (4.493216ms)
+✔ new revision never overwrites retained old revision (5.338122ms)
+✔ ready current content bypasses a pending background download (2.58906ms)
+✔ storage quota failure cannot falsely mark file ready (2.432664ms)
+✔ atomic journal retains current bundle on failed update and survives restart (0.972709ms)
+✔ volatile journal storage and empty bundles are refused (0.852318ms)
+✔ legacy WebView SHA-256 fallback agrees with native implementation (77.791822ms)
+✔ successful retry is not marked as a 15-second failure (8.694922ms)
+✔ two lanes run and replace videos without more than two decoder allocations (19.938424ms)
+✔ stalled first frame is detected, then bounded retry and quarantine (2.987492ms)
+✔ duplicate callbacks from one attempt count as one failure (1.069004ms)
+✔ actual completion resets historical failures (1.89356ms)
+✔ notice / black mode pause removes decoders and does not count failures (1.846228ms)
+✔ a late old callback cannot fail the new content (1.375167ms)
+✔ metadata duration never skips an unstarted video silently (1.048854ms)
+✔ HTTP success without acknowledgement preserves the outbox (1.1653ms)
+✔ flush acknowledges only sent IDs and preserves concurrently queued records (0.90665ms)
+✔ partial acknowledgements preserve failed entries (0.797615ms)
+✔ network outage does not discard durable events (0.789533ms)
+✔ storage failure is visible and does not erase in-memory events (0.653387ms)
+✔ outbox is bounded and reports dropped records (0.619887ms)
+✔ empty playlist cancels the former video (0.992539ms)
+✔ 72-hour accelerated two-lane transition simulation keeps bounded resources (37377.088458ms)
+✔ progress that stops after playback begins triggers stall recovery (3.140964ms)
+✔ one lane exclusion never prevents the same content in the other lane (2.130858ms)
+✔ hung source resolution reaches a bounded recovery deadline (0.979779ms)
+✔ removed image poster is discarded when playlist becomes empty (0.897546ms)
+✔ short video ending before the polling interval can complete (1.076996ms)
+✔ SW installs all required assets and preserves media caches on activation (3.717685ms)
+✔ SW navigation keeps installed HTML together with its matching scripts (1.45ms)
+ℹ tests 48
+ℹ suites 0
+ℹ pass 48
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 39483.529604

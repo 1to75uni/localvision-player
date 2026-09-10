@@ -1,15 +1,7 @@
-# LocalVision Player v1.7.3 OFFLINE FIRST
+# LocalVision Player 1.9.0
 
-## 운영 기본값
-- heartbeat: `300000`
-- commandPoll: `300000`
-- noticePollMs: `60000`
-- 기본 콘텐츠 재생시간: `20초`
+검증형 플레이리스트 업데이트입니다. 파일별 원본 대조, 검증 후 적용, 저장 목록 복원, 다음 시간대 사전 준비와 CMS 단계별 진단을 포함합니다.
 
-## 핵심 변경
-- `id=lv001` / `appId=lv001` 파라미터를 인식합니다.
-- `apiBase`가 있을 경우 `/api/app-config?id=lv001`을 5분마다 확인합니다.
-- CMS의 app-config Player URL이 바뀌면 Player가 자동으로 새 URL로 이동합니다.
-- 콘텐츠 재생 오류 1회는 해당 콘텐츠 스킵, 2회 누적은 Player 전체 새로고침을 수행합니다.
-- 자동 새로고침 루프 방지를 위해 5분 쿨다운과 1시간 3회 제한을 적용했습니다.
-- 기존 캐시명과 SW 캐시명을 v1.7.3으로 올려 구버전 캐시 충돌을 줄였습니다.
+**DEPLOY_AND_OPERATIONS_KO.md**의 순서대로 CMS를 먼저 배포하고 Player를 업데이트하세요. **TEST_REPORT.md**에 자동 시험 결과와 현장 미검증 범위를 명시했습니다.
+
+ZIP 최상위 폴더 안 내용물을 기존 저장소 루트에 반영합니다. 운영 서버/깃허브에 자동 배포하는 패키지가 아닙니다.

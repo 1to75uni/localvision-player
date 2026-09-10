@@ -1,68 +1,30 @@
-const APP_CACHE = 'lv-player-app-v1-7-3-content-sync-field-log'
-const APP_ASSETS = ['./', './index.html', './style.css', './app.js', './sw.js', './loading.jpg']
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(APP_CACHE)
-      .then((cache) => cache.addAll(APP_ASSETS))
-      .then(() => self.skipWaiting())
-  )
-})
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key.startsWith('lv-player-app-') && key !== APP_CACHE)
-          .map((key) => caches.delete(key))
-      )
-    ).then(() => self.clients.claim())
-  )
-})
-
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url)
-  if (event.request.method !== 'GET') return
-  // API/version 요청은 절대 캐시하지 않습니다. heartbeat/app-config/playlist는 항상 최신 네트워크 값이어야 합니다.
-  if (url.pathname.includes('/api/') || url.pathname.endsWith('/version.json')) return
-
-  if (url.origin === location.origin && event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request, { cache: 'no-store' })
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(APP_CACHE).then((cache) => {
-              cache.put('./index.html', clone.clone()).catch(() => {})
-              cache.put(event.request, clone).catch(() => {})
-            })
-          }
-          return response
-        })
-        .catch(async () =>
-          (await caches.match('./index.html')) ||
-          (await caches.match('./')) ||
-          caches.match(event.request, { ignoreSearch: true })
-        )
-    )
-    return
+const APP_CACHE = 'lv-player-app-v1-9-0-stable';
+const APP_ASSETS = ['./index.html','./style.css','./integrity.js?v=1.9.0','./playlist-store.js?v=1.9.0','./runtime.js?v=1.9.0','./app.js?v=1.9.0','./loading.jpg'];
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(APP_CACHE).then(cache=>cache.addAll(APP_ASSETS)).then(()=>self.skipWaiting()));
+});
+self.addEventListener('activate', event => {
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
+});
+self.addEventListener('fetch', event => {
+  const url=new URL(event.request.url);
+  if(event.request.method!=='GET' || url.origin!==self.location.origin || url.pathname.includes('/api/') || url.pathname.endsWith('/version.json'))return;
+  if(event.request.mode==='navigate') {
+    event.respondWith((async()=>{
+      const cache=await caches.open(APP_CACHE);
+      const installed=await cache.match('./index.html');
+      if(installed)return installed;
+      return fetch(event.request,{cache:'no-store'});
+    })());
+    return;
   }
-
-  if (url.origin === location.origin) {
-    event.respondWith(
-      fetch(event.request, { cache: 'no-store' })
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(APP_CACHE).then((cache) => cache.put(event.request, clone).catch(() => {}))
-          }
-          return response
-        })
-        .catch(async () =>
-          (await caches.match(event.request)) ||
-          caches.match(event.request, { ignoreSearch: true })
-        )
-    )
-  }
-})
+  if(!APP_ASSETS.some(asset=>new URL(asset,self.location.href).href===url.href))return;
+  event.respondWith((async()=>{
+    const cache=await caches.open(APP_CACHE),hit=await cache.match(event.request);
+    // Versioned application assets are activated together by installation.
+    if(hit)return hit;
+    const response=await fetch(event.request);
+    if(response.ok)await cache.put(event.request,response.clone());
+    return response;
+  })());
+});

@@ -1,11 +1,15 @@
+const STORAGE = (() => {
+  try { const value = window.localStorage; value.getItem('lv-check'); return value; }
+  catch (_) { const memory = new Map(); return {getItem:k=>memory.get(k) || null, setItem:(k,v)=>memory.set(k,String(v)), removeItem:k=>memory.delete(k), volatile:true}; }
+})()
 const params = new URLSearchParams(location.search)
 
 const LAST_GOOD_STORE_KEY = 'lv-last-good-store'
 const LAST_GOOD_API_BASE_KEY = 'lv-last-good-api-base'
 const rawStore = String(params.get('store') || '').trim()
 const rawApiBase = String(params.get('apiBase') || '').trim().replace(/\/$/, '')
-const lastGoodStore = String(localStorage.getItem(LAST_GOOD_STORE_KEY) || '').trim()
-const lastGoodApiBase = String(localStorage.getItem(LAST_GOOD_API_BASE_KEY) || '').trim().replace(/\/$/, '')
+const lastGoodStore = String(STORAGE.getItem(LAST_GOOD_STORE_KEY) || '').trim()
+const lastGoodApiBase = String(STORAGE.getItem(LAST_GOOD_API_BASE_KEY) || '').trim().replace(/\/$/, '')
 
 const CONFIG = {
   store: rawStore || lastGoodStore,
@@ -21,7 +25,9 @@ const CONFIG = {
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
   scheduleCheckMs: Number(params.get('scheduleCheck') || params.get('scheduleCheckMs') || 30000),
   versionPollMs: Number(params.get('versionPoll') || 600000),
-  cacheMax: Number(params.get('cacheMax') || 20),
+  cacheMax: Number(params.get('cacheMax') || 200),
+  cacheBudgetMB: Number(params.get('cacheBudgetMB') || 1024),
+  diagnosticEvents: params.get('diagnostics') === '1',
   restart: params.get('restart') || '',
   restartMode: params.get('restartMode') || 'reload',
   restartJitterSec: Number(params.get('restartJitterSec') || 0),
@@ -62,7 +68,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.8.0-schedule-playlist-mvp'
+const PLAYER_BUILD = 'v1.9.0-stable-playback'
 const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
 const META_KEY = 'lv-media-bundle-meta-v1-8-0'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
@@ -111,6 +117,11 @@ const state = {
   noticeVisible: false,
   noticeTimer: null,
   noticeErrorIds: {},
+  noticeGeneration: 0,
+  noticeObjectUrl: '',
+  noticeLoadController: null,
+  noticeMonitor: null,
+  scheduleApplying: false,
   playbackFailureCount: 0,
   lastPlaybackFailureAt: 0,
   recoveryReloadPending: false,
@@ -158,6 +169,158 @@ const els = {
   dbgStatus: document.getElementById('dbgStatus'),
 }
 
+// Stable installation identity is separate from the legacy store-level CMS device card.
+let installationId = CONFIG.deviceId || STORAGE.getItem('lv-installation-id') || `web_${LVRuntime.uid()}`
+CONFIG.deviceId = installationId
+try { STORAGE.setItem('lv-installation-id', installationId) } catch (_) {}
+const SESSION_ID = LVRuntime.uid()
+const BOOT_SEQUENCE = Math.max(Date.now(),Number(STORAGE.getItem('lv-boot-sequence') || 0) + 1)
+try { STORAGE.setItem('lv-boot-sequence', String(BOOT_SEQUENCE)) } catch (_) {}
+let healthSequence = 0, healthTimer = null, healthBusy = false
+let lastHealthSentAt = 0
+const exclusiveTasks = new Set()
+const cacheDownloads = new Map()
+let cacheWriteChain = Promise.resolve()
+let cacheKeepUrls = new Set()
+const playbackMetrics = {started:0,completed:0,interrupted:0,failed:0,skipped:0,items:{}}
+const outbox = new LVRuntime.Outbox({
+  storage: STORAGE, key: `lv-outbox-v181-${CONFIG.store}-${CONFIG.deviceId}`,
+  send: async (items) => LVRuntime.timedFetch(`${CONFIG.apiBase}/api/player-errors`, {
+    method:'POST',cache:'no-store',headers:{'content-type':'application/json'},
+    body:JSON.stringify({store:CONFIG.store,deviceId:CONFIG.deviceId,errors:items})
+  }, 15000, async response => {
+    const body = await response.json()
+    if (!response.ok) throw new Error(body.error || `로그 서버 HTTP ${response.status}`)
+    return body
+  })
+})
+// Import unsent v1.8.0 records without deleting them until durable new storage exists.
+try {
+  const old = JSON.parse(STORAGE.getItem(ERROR_QUEUE_KEY) || '[]')
+  if (Array.isArray(old) && old.length) {
+    old.forEach(e => outbox.enqueue({...e,deviceId:CONFIG.deviceId,id:e.id || LVRuntime.uid()}))
+    if (outbox.durable) STORAGE.removeItem(ERROR_QUEUE_KEY)
+  }
+} catch (_) {}
+const acquireDecoder = LVRuntime.createGate()
+const lanes = {}
+for (const side of ['left','right']) {
+  lanes[side] = new LVRuntime.Lane(side, {
+    zone: side === 'left' ? els.leftZone : els.rightZone, fit:CONFIG.fit,
+    acquire:acquireDecoder,resolveSource:async (item,signal) => {
+      return getCachedBlobUrl(item,signal)
+    },
+    onItem:(_side,item,index) => {setIndex(_side,index)},
+    onState:(_side,_snapshot,important) => {if (important) requestHealthReport();},
+    onEvent:(code,message,extra,level) => {
+      const names = {'LV-PLAY-START':'started','LV-PLAY-COMPLETE':'completed','LV-PLAY-INTERRUPTED':'interrupted','LV-MEDIA-SESSION-SKIP':'skipped'}
+      const metric = names[code] || (level === 'error' ? 'failed' : '')
+      if (metric) {
+        playbackMetrics[metric]++
+        const key = `${extra.side}:${extra.itemId || extra.fileName}`
+        if (!playbackMetrics.items[key] && Object.keys(playbackMetrics.items).length < 250) playbackMetrics.items[key] = {side:extra.side,itemId:extra.itemId,fileName:extra.fileName,started:0,completed:0,interrupted:0,failed:0,skipped:0}
+        if (playbackMetrics.items[key]) playbackMetrics.items[key][metric]++
+      }
+      if (['LV-PLAY-START','LV-PLAY-COMPLETE'].includes(code) && !CONFIG.diagnosticEvents) return
+      const opposite = lanes[side === 'left' ? 'right' : 'left']?.snapshot()
+      reportPlayerError(code,message,{...extra,opposite},level,extra.attemptId ? 0 : 60000)
+    }
+  })
+}
+
+
+const bundleJournal=new LVPlaylistStore.Journal(STORAGE,`lv-bundle-v190-${CONFIG.store}`);
+let delivery={phase:'idle',target:'',completed:0,total:0,verified:0,legacy:0,fileName:'',error:'',appliedAt:'',prefetch:null};
+let prefetchBusy=false,prefetchTimer=null,prefetchRetryAt=0,prefetchKey='',backgroundPreparing=false;
+let verifiedFiles,prefetchController=null,prefetchWork=null;
+function deliveryStage(phase,item){
+ if(backgroundPreparing){if(delivery.prefetch){delivery.prefetch.phase=phase;delivery.prefetch.fileName=item?.fileName || '';}}
+ else {delivery.phase=phase;delivery.fileName=item?.fileName || '';}
+ requestHealthReport();
+}
+verifiedFiles=new LVPlaylistStore.VerifiedFiles({
+ cache:getMediaCache,room:makeCacheRoom,
+ fetch:(url,signal,consume)=>LVRuntime.timedFetch(url,{cache:'no-store',signal},90000,consume),
+ yieldChunk:()=>globalThis.scheduler?.yield ? globalThis.scheduler.yield() : new Promise(resolve=>setTimeout(resolve,0)),
+ stage:deliveryStage,
+ saved:(key,result)=>touchMeta(key,{bytes:result.blob.size,revision:result.revision,originVerified:result.verified}),
+ fault:(e,item)=>reportPlayerError(e.code || 'LV-INTEGRITY-MISMATCH',e.message,{fileName:item.fileName,phase:'cache-validation'},'warning',60000)
+});
+function scheduleSnapshot(){return {playlistGroups:state.playlistGroups,playlistSchedules:state.playlistSchedules,defaultPlaylistKey:state.defaultPlaylistKey,activeKey:state.activePlaylistKey};}
+function restoreSchedule(s={}){state.playlistGroups=s.playlistGroups || {};state.playlistSchedules=s.playlistSchedules || [];state.defaultPlaylistKey=s.defaultPlaylistKey || 'default';state.activePlaylistKey=s.activeKey || '';}
+function commitPrepared(left,right){
+ const leftChanged=playlistSignature(left)!==playlistSignature(state.leftItems),rightChanged=playlistSignature(right)!==playlistSignature(state.rightItems);
+ const bundle={left,right,schedule:scheduleSnapshot(),savedAt:nowUtcIso(),id:bundleSignature(left,right)};
+ bundleJournal.commit(bundle); // Single authoritative write, before mutating live playback.
+ state.leftItems=left;state.rightItems=right;if(leftChanged)state.leftIndex=0;if(rightChanged)state.rightIndex=0;
+ saveBundle(left,right);saveScheduleBundle(right); // Legacy rollback compatibility; journal remains authoritative.
+ if(leftChanged)startPlayback('left');if(rightChanged)startPlayback('right');
+ cacheKeepUrls=new Set([...left,...right].map(i=>i.cacheUrl || i.url));
+ delivery.phase='applied';delivery.appliedAt=bundle.savedAt;delivery.fileName='';delivery.error='';
+ requestHealthReport();queuePrefetch();
+}
+function queuePrefetch(){if(prefetchTimer)clearTimeout(prefetchTimer);prefetchTimer=setTimeout(()=>{prefetchWork=prefetchUpcoming().catch(()=>{}).finally(()=>{prefetchWork=null})},2000);}
+function upcomingGroup(now=Date.now()){
+ const current=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey,new Date(now)).group;
+ for(let minute=1;minute<=24*60;minute++){
+  const selected=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey,new Date(Math.floor(now/60000)*60000+minute*60000));
+  if(selected.group && selected.group.key!==current?.key)return {group:selected.group,at:Math.floor(now/60000)*60000+minute*60000};
+ }
+ return null;
+}
+async function prefetchUpcoming(){
+ if(prefetchBusy || state.isSyncing || state.scheduleApplying || Date.now()<prefetchRetryAt)return;
+ const next=upcomingGroup();if(!next){delivery.prefetch=null;return;}
+ const left=normalizeItems(next.group.left),right=state.rightItems;const key=next.group.key+':'+bundleSignature(left,right);
+ if(prefetchKey===key && delivery.prefetch?.phase==='ready')return;
+ prefetchBusy=true;backgroundPreparing=true;prefetchController=new AbortController();prefetchKey=key;
+ delivery.prefetch={phase:'preparing',group:next.group.name || next.group.key,at:new Date(next.at).toISOString(),completed:0,total:0,error:''};
+ try{await ensureBundleCached(left,right,true,prefetchController.signal);delivery.prefetch.phase='ready';}
+ catch(e){delivery.prefetch.phase='blocked';delivery.prefetch.error=e.message;prefetchRetryAt=Date.now()+300000;reportPlayerError(e.code || 'LV-PREFETCH-FAILED',e.message,{phase:'prefetch',group:next.group.key},'warning',300000);}
+ finally{backgroundPreparing=false;prefetchBusy=false;prefetchController=null;requestHealthReport();}
+}
+async function selectBootBundle(){
+ const journal=bundleJournal.read();if(!journal)return;
+ const cache=await getMediaCache();
+ const complete=async b=>{for(const item of [...b.left,...b.right])if(!await cache.match(item.cacheUrl || item.url))return false;return true;};
+ let selected=journal.active;
+ if(!await complete(selected) && journal.previous && await complete(journal.previous)){
+  selected=journal.previous;delivery.error='현재 송출본 파일 누락: 이전 저장본 사용';
+  reportPlayerError('LV-BUNDLE-BOOT-FALLBACK',delivery.error,{phase:'boot'},'warning');
+ }
+ state.leftItems=selected.left;state.rightItems=selected.right;restoreSchedule(selected.schedule);
+ delivery.phase='restored';delivery.appliedAt=selected.savedAt || '';delivery.verified=[...selected.left,...selected.right].filter(x=>x.integrity).length;delivery.legacy=selected.left.length+selected.right.length-delivery.verified;
+}
+function healthPayload() {
+  return {store:CONFIG.store,deviceId:CONFIG.deviceId,appId:CONFIG.appId,sessionId:SESSION_ID,
+    bootSequence:BOOT_SEQUENCE,sequence:++healthSequence,playerVersion:PLAYER_BUILD,appVersion:CONFIG.appVersion,
+    sentAt:nowUtcIso(),heartbeatMs:CONFIG.heartbeatMs,userAgent:navigator.userAgent,
+    visibility:document.visibilityState,blackMode:state.blackModeActive,notice:state.noticeVisible,
+    left:lanes.left.snapshot(),right:lanes.right.snapshot(),outbox:{...outbox.snapshot(),volatileStorage:Boolean(STORAGE.volatile)},
+    delivery,cache:{status:state.cacheStatus,budgetMB:CONFIG.cacheBudgetMB},metrics:playbackMetrics,
+    schedule:{activeKey:state.activePlaylistKey,status:state.scheduleStatus},
+    lastCommand:readJsonStorage('lv-last-command-result',null)}
+}
+function readJsonStorage(key,fallback) {try{return JSON.parse(STORAGE.getItem(key) || 'null') || fallback}catch(_){return fallback}}
+function requestHealthReport() {
+  if (healthTimer || !CONFIG.apiBase) return
+  healthTimer = setTimeout(() => {healthTimer=null;sendHealthReport().catch(()=>{})},Math.max(1000,10000-(Date.now()-lastHealthSentAt)))
+}
+async function sendHealthReport() {
+  if (healthBusy || !CONFIG.apiBase || !CONFIG.store) return
+  healthBusy=true
+  try {
+    await LVRuntime.timedFetch(`${CONFIG.apiBase}/api/player-status`,{method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify(healthPayload())},15000,async r=>{if(!r.ok) throw new Error(`상태 서버 HTTP ${r.status}`);return r.json()})
+    lastHealthSentAt=Date.now()
+  } catch (_) { /* The next heartbeat retries current state; playback never waits. */ }
+  finally {healthBusy=false}
+}
+async function runExclusive(name,task) {
+  if (exclusiveTasks.has(name)) return
+  exclusiveTasks.add(name)
+  try {return await task()} finally {exclusiveTasks.delete(name)}
+}
+
 function showStatusTemporarily(ms = 5000) {
   if (!els.statusPill) return
   els.statusPill.classList.remove('is-hidden')
@@ -188,115 +351,31 @@ function shouldReportError(key, minMs = 60000) {
 }
 
 
-function readQueuedPlayerErrors() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(ERROR_QUEUE_KEY) || '[]')
-    if (!Array.isArray(raw)) return []
-    const now = Date.now()
-    return raw
-      .filter((item) => item && now - Number(item.queuedAt || 0) <= ERROR_QUEUE_MAX_AGE_MS)
-      .slice(-ERROR_QUEUE_MAX)
-  } catch {
-    return []
-  }
-}
+function readQueuedPlayerErrors() { return outbox.items.slice() }
 
-function writeQueuedPlayerErrors(items = []) {
-  try { localStorage.setItem(ERROR_QUEUE_KEY, JSON.stringify(items.slice(-ERROR_QUEUE_MAX))) } catch {}
-}
+function writeQueuedPlayerErrors() { outbox.persist() }
 
-function enqueuePlayerError(payload = {}) {
-  const items = readQueuedPlayerErrors()
-  const compact = {
-    ...payload,
-    queuedAt: Date.now(),
-    extra: {
-      ...(payload.extra || {}),
-      queued: true,
-      queuedAtUtc: nowUtcIso(),
-      queuedAtKst: kstString(),
-    },
-  }
-  items.push(compact)
-  writeQueuedPlayerErrors(items)
-}
+function enqueuePlayerError(payload = {}) { return outbox.enqueue(payload) }
 
-async function flushQueuedPlayerErrors(reason = 'flush') {
-  if (!CONFIG.apiBase) return false
-  const items = readQueuedPlayerErrors()
-  if (!items.length) return true
-  try {
-    const response = await fetch(`${CONFIG.apiBase}/api/player-errors`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        store: CONFIG.store || rawStore || lastGoodStore || '',
-        deviceId: CONFIG.deviceId || '',
-        href: location.href,
-        userAgent: navigator.userAgent,
-        reason,
-        errors: items.map(({ queuedAt, ...item }) => item),
-      }),
-    })
-    if (!response.ok) throw new Error(`flush failed ${response.status}`)
-    writeQueuedPlayerErrors([])
-    return true
-  } catch (error) {
-    writeQueuedPlayerErrors(items)
-    return false
-  }
-}
+function flushQueuedPlayerErrors() { outbox.flush().catch(()=>{}); return true }
 
 async function reportPlayerError(errorCode, message, extra = {}, level = 'error', minReportMs = 60000) {
   if (!CONFIG.apiBase) return
-  const key = `${errorCode}:${extra.side || ''}:${extra.fileName || extra.cacheUrl || extra.sourceUrl || extra.url || ''}:${message}`
-  if (!shouldReportError(key, minReportMs)) return
-
-  const timeUtc = nowUtcIso()
-  const timeKst = kstString(timeUtc)
-
-  const payload = {
-    store: CONFIG.store || rawStore || lastGoodStore || '',
-    deviceId: CONFIG.deviceId || '',
-    errorCode,
-    message,
-    level,
-    time: timeUtc,
-    timeUtc,
-    timeKst,
-    href: location.href,
-    userAgent: navigator.userAgent,
-    extra: {
-      ...extra,
-      timeUtc,
-      timeKst,
-      apiBase: CONFIG.apiBase,
-      playerVersion: PLAYER_BUILD,
-    },
-  }
-
-  try {
-    const response = await fetch(`${CONFIG.apiBase}/api/player-errors`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) throw new Error(`player-errors ${response.status}`)
-    flushQueuedPlayerErrors('after-single-success')
-  } catch (error) {
-    enqueuePlayerError(payload)
-  }
+  const key = `${errorCode}:${extra.side || ''}:${extra.itemId || extra.fileName || ''}:${extra.attemptId || ''}:${message}`
+  if (minReportMs > 0 && !shouldReportError(key,minReportMs)) return
+  const timeUtc=nowUtcIso()
+  const id=outbox.enqueue({store:CONFIG.store,deviceId:CONFIG.deviceId,errorCode,message:String(message || '').slice(0,1000),level,time:timeUtc,timeUtc,timeKst:kstString(timeUtc),
+    href:location.href,userAgent:navigator.userAgent,extra:{...extra,timeUtc,timeKst:kstString(timeUtc),playerVersion:PLAYER_BUILD,sessionId:SESSION_ID}})
+  if (level === 'error' || level === 'fatal' || errorCode === 'LV-MEDIA-RECOVERED') requestHealthReport()
+  return id
 }
 
-
 function readRecoveryMeta() {
-  try { return JSON.parse(localStorage.getItem(RECOVERY_KEY) || '{}') } catch { return {} }
+  try { return JSON.parse(STORAGE.getItem(RECOVERY_KEY) || '{}') } catch { return {} }
 }
 
 function writeRecoveryMeta(meta) {
-  try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(meta || {})) } catch {}
+  try { STORAGE.setItem(RECOVERY_KEY, JSON.stringify(meta || {})) } catch {}
 }
 
 async function requestRecoveryReload(errorCode, message, extra = {}) {
@@ -346,49 +425,12 @@ function isTransientPlaybackMessage(message = '') {
     || text.includes('interrupted because')
 }
 
-async function handlePlaybackFailure(side, item, errorCode, message, extra = {}) {
-  const payload = { side, itemId: item?.id, title: item?.title, url: item?.url, fileName: item?.fileName, ...extra }
-  const key = mediaKeyOf(item)
-
-  // URL 이동/app-config 갱신/브라우저 frozen 중 발생하는 play() interrupt는 파일 손상으로 보지 않습니다.
-  // 캐시 삭제/세션 제외를 하지 않고 짧게 재시도하여 불필요한 오류 누적을 줄입니다.
-  if (isTransientPlaybackMessage(message)) {
-    setStatus(`${side} 일시 중단 감지: 짧게 재시도`)
-    await reportPlayerError('LV-MEDIA-TRANSIENT-RETRY', message || '일시적인 재생 중단으로 재시도합니다.', payload, 'warning', 30 * 60 * 1000)
-    if (!state.navigating) setSideTimer(side, () => playItem(side, item), 1500)
-    return
-  }
-
-  if (key && state.sessionBlacklist[key]) {
-    // 이미 이번 세션에서 제외된 파일의 늦은 onerror/watchdog 이벤트는 다시 보고하지 않습니다.
-    return scheduleNext(side, 2)
-  }
-
-  await reportPlayerError(errorCode, message, payload, 'error')
-
-  const count = key ? Number(state.mediaFailures[key] || 0) + 1 : 1
-  if (key) state.mediaFailures[key] = count
-
-  const msg = String(message || '')
-  const isPowerPause = msg.includes('paused to save power') || msg.includes('interrupted') || msg.includes('play() request')
-
-  if (count === 1) {
-    if (!isPowerPause) await deleteMediaCacheForItem(item)
-    setStatus(`${errorCode}: ${side} 재시도 1회 (${item?.fileName || item?.title || ''})`)
-    setSideTimer(side, () => playItem(side, item), isPowerPause ? 1200 : 800)
-    return
-  }
-
-  if (key) state.sessionBlacklist[key] = Date.now()
-  setStatus(`${errorCode}: ${side} 콘텐츠 임시 제외 후 다음 재생`)
-  await reportPlayerError('LV-MEDIA-SESSION-SKIP', '반복 실패 콘텐츠를 이번 세션에서 임시 제외했습니다.', { ...payload, failCount: count, blacklisted: true }, 'warning', 30 * 60 * 1000)
-  scheduleNext(side, 2)
+function handlePlaybackFailure(side,item,errorCode,message,extra={}) {
+  const lane=lanes[side]
+  if(lane && lane.current?.url === item?.url) lane.fail(Object.assign(new Error(message),{code:errorCode,...extra}),'playback',lane.generation)
 }
 
-function markPlaybackSuccess() {
-  state.playbackFailureCount = 0
-  state.lastPlaybackFailureAt = 0
-}
+function markPlaybackSuccess() { /* Completion is tracked by each Lane. */ }
 
 function showErrorScreen({ title = 'LocalVision 오류', message = '플레이어 실행 중 문제가 발생했습니다.', errorCode = 'LV-UNKNOWN', detail = '' }) {
   let overlay = document.getElementById('playerErrorOverlay')
@@ -401,10 +443,10 @@ function showErrorScreen({ title = 'LocalVision 오류', message = '플레이어
   overlay.innerHTML = `
     <div class="player-error-card">
       <p class="player-error-kicker">LocalVision 오류</p>
-      <h1>${title}</h1>
-      <p>${message}</p>
-      ${detail ? `<pre>${detail}</pre>` : ''}
-      <strong>오류코드: ${errorCode}</strong>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+      ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ''}
+      <strong>오류코드: ${escapeHtml(errorCode)}</strong>
       <span>점주님은 위 오류코드를 관리자에게 알려주세요.</span>
     </div>
   `
@@ -418,8 +460,8 @@ function hideErrorScreen() {
 }
 
 function markGoodConfig() {
-  if (CONFIG.store) localStorage.setItem(LAST_GOOD_STORE_KEY, CONFIG.store)
-  if (CONFIG.apiBase) localStorage.setItem(LAST_GOOD_API_BASE_KEY, CONFIG.apiBase)
+  if (CONFIG.store) STORAGE.setItem(LAST_GOOD_STORE_KEY, CONFIG.store)
+  if (CONFIG.apiBase) STORAGE.setItem(LAST_GOOD_API_BASE_KEY, CONFIG.apiBase)
 }
 
 function updateDebug() {
@@ -440,46 +482,25 @@ async function registerServiceWorker() {
 }
 
 async function fetchJson(url, options = {}) {
-  const attempts = Number(options.attempts || 3)
-  const delays = [0, 3000, 10000]
-  let lastError = null
-  const cleanOptions = { ...options }
-  delete cleanOptions.attempts
-
-  for (let i = 0; i < attempts; i += 1) {
-    if (delays[i]) await sleep(delays[i])
+  const attempts=LVRuntime.clamp(options.attempts || 3,1,3,3)
+  const clean={...options}; delete clean.attempts
+  let lastError
+  for(let attempt=0;attempt<attempts;attempt++) {
+    if(attempt) await sleep(attempt*1000)
     try {
-      // CORS 안정성: API fetch에는 cache-control/pragma 같은 요청 헤더를 직접 붙이지 않습니다.
-      // cache: 'no-store' 옵션과 URL의 t/_lvts 캐시버스터만 사용합니다.
-      const response = await fetch(url, {
-        cache: 'no-store',
-        ...cleanOptions,
-        headers: { ...(cleanOptions.headers || {}) },
+      return await LVRuntime.timedFetch(url,{cache:'no-store',...clean},15000,async response=>{
+        const text=await response.text()
+        let data;try{data=JSON.parse(text)}catch(_){throw createPlayerError('LV-API-INVALID','CMS 응답 형식 오류')}
+        if(!response.ok || data.ok === false) {
+          const err=createPlayerError(data.errorCode || 'LV-API-DOWN',data.error || `HTTP ${response.status}`)
+          err.status=response.status;err.url=url;err.endpoint=new URL(url).pathname;throw err
+        }
+        return data
       })
-      const text = await response.text().catch(() => '')
-      let data = {}
-      try { data = text ? JSON.parse(text) : {} } catch (_) {
-        data = { ok: false, error: text.slice(0, 300) || 'Non-JSON response' }
-      }
-      if (!response.ok || data.ok === false) {
-        const err = createPlayerError(data.errorCode || 'LV-API-DOWN', data.error || `HTTP ${response.status}`)
-        err.status = response.status
-        err.endpoint = (() => { try { return new URL(url).pathname } catch (_) { return '' } })()
-        err.url = url
-        err.responseBody = text.slice(0, 500)
-        throw err
-      }
-      return data
-    } catch (error) {
-      if (!error.url) error.url = url
-      if (!error.endpoint) { try { error.endpoint = new URL(url).pathname } catch (_) {} }
-      lastError = error
-      // POST/PATCH도 1회 이상은 재시도하지만, 긴 반복은 하지 않습니다.
-    }
+    } catch(error) {lastError=error;error.url=url;try{error.endpoint=new URL(url).pathname}catch(_){};if(error.status>=400 && error.status<500 && error.status!==429) break}
   }
-  throw lastError || new Error('fetch failed')
+  throw lastError
 }
-
 
 async function fetchAppConfig() {
   if (!CONFIG.apiBase || !CONFIG.appId) return null
@@ -527,7 +548,7 @@ async function checkAppConfig(reason = 'poll') {
 }
 
 function playerQuery(extra = {}) {
-  const qs = new URLSearchParams({ store: CONFIG.store, t: String(Date.now()), ...extra })
+  const qs = new URLSearchParams({ store: CONFIG.store, deviceId: CONFIG.deviceId, t: String(Date.now()), ...extra })
   if (CONFIG.appId) qs.set('id', CONFIG.appId)
   return qs
 }
@@ -538,7 +559,8 @@ async function fetchPlayerState(reason = 'poll') {
   try {
     return await fetchJson(`${CONFIG.apiBase}/api/player-state?${qs.toString()}`)
   } catch (error) {
-    // 이전 CMS와의 호환을 위해 player-state가 없으면 기존 player-config로 fallback합니다.
+    if (error.status !== 404) throw error
+    // 이전 CMS에서 player-state가 없을 때만 호환 엔드포인트를 사용합니다.
     const fallback = await fetchJson(`${CONFIG.apiBase}/api/player-config?store=${encodeURIComponent(CONFIG.store)}&t=${Date.now()}`)
     fallback.endpoint = '/api/player-config-fallback'
     return fallback
@@ -574,6 +596,7 @@ function setBlackMode(active, reason = 'off', extra = {}) {
   const overlay = ensureBlackModeOverlay()
   const next = Boolean(active)
   if (state.blackModeActive === next && state.blackModeReason === reason) return
+  for(const side of ['left','right']) next ? lanes[side].pause('black-mode') : lanes[side].resume('black-mode')
   state.blackModeActive = next
   state.blackModeReason = reason || 'off'
   state.blackModeUpdatedAt = kstString()
@@ -653,13 +676,12 @@ function isScheduleActiveAt(schedule = {}, value = new Date()) {
   if (!schedule || schedule.enabled === false) return false
   const parts = kstParts(value)
   const days = parseScheduleDays(schedule.days || schedule.daysJson)
-  if (!days.includes(parts.day)) return false
   const start = timeMinutes(schedule.startTime)
   const end = timeMinutes(schedule.endTime)
   const now = parts.minutes
-  if (start === end) return true
-  if (start < end) return now >= start && now < end
-  return now >= start || now < end
+  if (start === end) return days.includes(parts.day)
+  if (start < end) return days.includes(parts.day) && now >= start && now < end
+  return (days.includes(parts.day) && now >= start) || (days.includes((parts.day+6)%7) && now < end)
 }
 
 function pickActiveSchedule(schedules = [], value = new Date()) {
@@ -704,7 +726,7 @@ function selectScheduledGroup(groups = {}, schedules = [], defaultKey = 'default
 
 function saveScheduleBundle(rightItems = []) {
   try {
-    localStorage.setItem(SCHEDULE_KEY, JSON.stringify({
+    STORAGE.setItem(SCHEDULE_KEY, JSON.stringify({
       playlistGroups: state.playlistGroups,
       playlistSchedules: state.playlistSchedules,
       defaultPlaylistKey: state.defaultPlaylistKey,
@@ -716,7 +738,7 @@ function saveScheduleBundle(rightItems = []) {
 
 function loadSavedScheduleBundle() {
   try {
-    const saved = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || 'null')
+    const saved = JSON.parse(STORAGE.getItem(SCHEDULE_KEY) || 'null')
     if (!saved || !saved.playlistGroups) return false
     state.playlistGroups = normalizePlaylistGroups(saved.playlistGroups)
     state.playlistSchedules = Array.isArray(saved.playlistSchedules) ? saved.playlistSchedules : []
@@ -730,7 +752,13 @@ function loadSavedScheduleBundle() {
 function captureSchedulePayload(data = {}) {
   const groups = normalizePlaylistGroups(data.playlistGroups || {})
   const schedules = Array.isArray(data.playlistSchedules) ? data.playlistSchedules : []
-  if (!Object.keys(groups).length) return false
+  if (!Object.keys(groups).length) {
+    if(Object.prototype.hasOwnProperty.call(data,'playlistGroups')) {
+      state.playlistGroups={};state.playlistSchedules=[];state.activePlaylistKey='';state.scheduleStatus='off'
+      try{STORAGE.removeItem(SCHEDULE_KEY)}catch(_){}
+    }
+    return false
+  }
   state.playlistGroups = groups
   state.playlistSchedules = schedules
   state.defaultPlaylistKey = data.defaultPlaylistKey || 'default'
@@ -740,6 +768,13 @@ function captureSchedulePayload(data = {}) {
 }
 
 async function applyLocalSchedule(reason = 'schedule-local') {
+  const desired=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey).group;
+  if(prefetchBusy && (!desired || playlistSignature(normalizeItems(desired.left))===playlistSignature(state.leftItems)))return false;
+  if(prefetchBusy){prefetchController?.abort();if(prefetchWork)await prefetchWork;}
+  if(state.isSyncing || state.scheduleApplying || prefetchBusy) return false
+  state.scheduleApplying=true
+  const priorKey=state.activePlaylistKey
+  try {
   if (!Object.keys(state.playlistGroups || {}).length) return false
   const selected = selectScheduledGroup(state.playlistGroups, state.playlistSchedules, state.defaultPlaylistKey)
   const group = selected.group
@@ -755,13 +790,11 @@ async function applyLocalSchedule(reason = 'schedule-local') {
     updateDebug()
     return false
   }
-  if (CONFIG.bundleMode === 'cache' && CONFIG.activateWhenCached) await ensureBundleCached(nextLeft, nextRight)
-  state.leftItems = nextLeft
-  state.leftIndex = 0
+  await ensureBundleCached(nextLeft, nextRight)
+  const fresh=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey)
+  if((fresh.group?.key || fresh.group?.slug || fresh.group?.id || 'default') !== nextKey) return false
   state.activePlaylistKey = nextKey
-  saveBundle(state.leftItems, state.rightItems)
-  saveScheduleBundle(state.rightItems)
-  startPlayback('left')
+  commitPrepared(nextLeft,nextRight)
   await reportPlayerError('LV-SCHEDULE-PLAYLIST-SWITCH', `시간대별 송출 전환: ${group.name}`, {
     reason,
     playlistKey: nextKey,
@@ -771,6 +804,7 @@ async function applyLocalSchedule(reason = 'schedule-local') {
   setStatus(`시간대별 송출: ${group.name}`)
   updateDebug()
   return true
+  } catch(error){state.activePlaylistKey=priorKey;delivery.phase='blocked';delivery.error=error.message;requestHealthReport();reportPlayerError(error.code || 'LV-SCHEDULE-PREPARE',error.message,{phase:'schedule-prepare'},'warning',60000);return false;} finally {state.scheduleApplying=false;queuePrefetch()}
 }
 
 async function resolvePlaylistsFromConfig(data) {
@@ -836,10 +870,7 @@ function mediaKeyOf(item = {}) {
   return String(item.cacheKey || item.cacheUrl || item.sourceUrl || item.url || item.fileName || item.id || '')
 }
 
-function isBlacklisted(item = {}) {
-  const key = mediaKeyOf(item)
-  return Boolean(key && state.sessionBlacklist[key])
-}
+function isBlacklisted(item={}) { return false /* Quarantines are lane-scoped in runtime.js. */ }
 
 async function deleteMediaCacheForItem(item = {}) {
   try {
@@ -890,6 +921,11 @@ function makeMediaFetchUrl(rawUrl) {
   }
 }
 
+function verifiedCacheKey(item) {
+  const url=makeMediaFetchUrl(item.url || '');if(!item.integrity?.revision)return url;
+  const u=new URL(url,location.href);u.searchParams.set('_lvrev',item.integrity.revision);return u.href;
+}
+
 function normalizeItems(items) {
   if (!Array.isArray(items)) return []
   return items
@@ -899,7 +935,8 @@ function normalizeItems(items) {
       duration: Number(item.duration || 20),
       sourceUrl: item.url || '',
       url: item.url || '',
-      cacheUrl: makeMediaFetchUrl(item.url || ''),
+      fetchUrl: makeMediaFetchUrl(item.url || ''),
+      cacheUrl: verifiedCacheKey(item),
       type: item.type || guessType(item.url || item.fileName || ''),
       cacheKey: makeMediaFetchUrl(item.url || ''),
     }))
@@ -915,6 +952,7 @@ function lightItems(items) {
     duration: item.duration,
     status: item.status,
     sortOrder: item.sortOrder,
+    integrityRevision:item.integrity?.revision || '',
   }))
 }
 
@@ -931,14 +969,16 @@ function bundleSignature(left, right) {
 
 function loadSavedBundle() {
   try {
-    const saved = JSON.parse(localStorage.getItem(PLAYLIST_KEY) || 'null')
+    const saved = bundleJournal.read()?.active || JSON.parse(STORAGE.getItem(PLAYLIST_KEY) || 'null')
     if (!saved) return false
     if (!Array.isArray(saved.left) || !Array.isArray(saved.right)) return false
 
+    if(saved.schedule)restoreSchedule(saved.schedule)
     state.leftItems = saved.left
     state.rightItems = saved.right
     state.leftIndex = Number(saved.leftIndex || 0)
     state.rightIndex = Number(saved.rightIndex || 0)
+    if(!bundleJournal.read()){try{bundleJournal.commit({...saved,schedule:scheduleSnapshot(),id:bundleSignature(saved.left,saved.right)})}catch(e){reportPlayerError(e.code,e.message,{phase:'legacy-migration'},'warning')}}
     state.bundleStatus = `saved ${saved.savedAt || ''}`
     updateDebug()
     return state.leftItems.length > 0 || state.rightItems.length > 0
@@ -947,22 +987,16 @@ function loadSavedBundle() {
   }
 }
 
-function saveBundle(left, right) {
-  localStorage.setItem(PLAYLIST_KEY, JSON.stringify({
-    left,
-    right,
-    sig: bundleSignature(left, right),
-    savedAt: new Date().toISOString(),
-  }))
+function saveBundle(left,right) {
+  try { STORAGE.setItem(PLAYLIST_KEY,JSON.stringify({left,right,sig:bundleSignature(left,right),savedAt:nowUtcIso()})) }
+  catch(error) {reportPlayerError('LV-STORAGE-WRITE','재시작용 재생목록 저장 실패',{message:error.message},'error')}
 }
 
 function loadMeta() {
-  try { return JSON.parse(localStorage.getItem(META_KEY) || '{}') } catch { return {} }
+  try { return JSON.parse(STORAGE.getItem(META_KEY) || '{}') } catch { return {} }
 }
 
-function saveMeta(meta) {
-  localStorage.setItem(META_KEY, JSON.stringify(meta || {}))
-}
+function saveMeta(meta) { try{STORAGE.setItem(META_KEY,JSON.stringify(meta || {}))}catch(_){} }
 
 function touchMeta(url, patch = {}) {
   const meta = loadMeta()
@@ -983,96 +1017,56 @@ async function isCached(url) {
   return !!(await cache.match(url))
 }
 
-async function ensureCached(item, index, total) {
-  const fetchUrl = item?.cacheUrl || item?.url
-  if (!fetchUrl) return false
+async function ensureCached(item,index,total,signal) {
+ return verifiedFiles.ensure(item,signal);
+}
+async function ensureBundleCached(left,right,background=false,signal){
+ const unique=[...new Map([...left,...right].map(item=>[item.cacheUrl || item.url,item])).values()];
+ cacheKeepUrls=new Set(unique.map(i=>i.cacheUrl || i.url));
+ const target=background?delivery.prefetch:delivery;
+ Object.assign(target,{phase:'preparing',completed:0,total:unique.length,verified:0,legacy:0,error:''});
+ if(!background)target.target=`왼쪽 ${left.length} · 오른쪽 ${right.length}`;
+ for(let i=0;i<unique.length;i++){
+  const result=await ensureCached(unique[i],i+1,unique.length,signal);
+  target.completed++;result.verified?target.verified++:target.legacy++;
+  state.bundleStatus=`검증 ${target.completed}/${target.total} · 원본 대조 ${target.verified} · 기존 파일 ${target.legacy}`;
+  updateDebug();requestHealthReport();
+ }
+ target.phase='ready';target.fileName='';await pruneCache(unique.map(i=>i.cacheUrl || i.url));return true;
+}
 
-  const cache = await getMediaCache()
-  const hit = await cache.match(fetchUrl)
-  if (hit) {
-    touchMeta(fetchUrl, { type: item.type, side: item.side, sourceUrl: item.url })
-    return true
+async function pruneCache(activeUrls=[]) {
+  cacheKeepUrls=new Set(activeUrls)
+  await makeCacheRoom(0,'')
+  await updateCacheStatus()
+}
+
+async function makeCacheRoom(incomingBytes=0,incomingUrl='') {
+  const cache=await getMediaCache(), keys=await cache.keys(),meta=loadMeta()
+  const entries=[]
+  for(const req of keys) {
+    let bytes=Number(meta[req.url]?.bytes || 0)
+    if(!bytes) {const res=await cache.match(req);bytes=Number(res?.headers.get('content-length') || 0)}
+    entries.push({url:req.url,bytes,used:meta[req.url]?.lastUsed || 0})
   }
-
-  state.bundleStatus = `다운로드 ${index}/${total}`
-  setStatus(`미디어 다운로드중 ${index}/${total}`)
-  updateDebug()
-
-  let response
+  let bytes=entries.reduce((n,e)=>n+e.bytes,0),count=entries.length
+  let budget=LVRuntime.clamp(CONFIG.cacheBudgetMB,128,8192,1024)*1024*1024
   try {
-    response = await fetch(fetchUrl, { cache: 'no-store' })
-  } catch (error) {
-    throw new Error(`media fetch failed: ${item.title || item.url || fetchUrl}`)
+    const estimate=await navigator.storage?.estimate?.()
+    if(estimate?.quota) budget=Math.min(budget,Math.max(0,estimate.quota*.8-(estimate.usage || 0)+bytes))
+  }catch(_){}
+  const active=new Set([...cacheKeepUrls,...state.leftItems.map(i=>i.cacheUrl || i.url),...state.rightItems.map(i=>i.cacheUrl || i.url)])
+  const previous=bundleJournal.read()?.previous;
+  if(previous)for(const item of [...previous.left,...previous.right])active.add(item.cacheUrl || item.url);
+  if(delivery.prefetch?.phase==='ready'){const group=Object.values(state.playlistGroups || {}).find(g=>(g.name || g.key)===delivery.prefetch.group);if(group)for(const item of normalizeItems(group.left))active.add(item.cacheUrl || item.url);}
+  if(incomingUrl) active.add(incomingUrl)
+  for(const entry of entries.sort((a,b)=>a.used-b.used)) {
+    if(bytes+incomingBytes<=budget && count<CONFIG.cacheMax) break
+    if(active.has(entry.url)) continue
+    await cache.delete(entry.url);bytes-=entry.bytes;count--;delete meta[entry.url]
   }
-
-  if (!response.ok) throw new Error(`media ${response.status}: ${item.title || item.url || fetchUrl}`)
-
-  await cache.put(fetchUrl, response.clone())
-  touchMeta(fetchUrl, { type: item.type, side: item.side, sourceUrl: item.url })
-  return true
-}
-
-async function ensureBundleCached(left, right) {
-  const bundle = [
-    ...left.map((item) => ({ ...item, side: 'left' })),
-    ...right.map((item) => ({ ...item, side: 'right' })),
-  ].filter((item) => item.url)
-
-  const unique = []
-  const seen = new Set()
-  for (const item of bundle) {
-    const key = item.cacheUrl || item.url
-    if (!seen.has(key)) {
-      seen.add(key)
-      unique.push(item)
-    }
-  }
-
-  if (!unique.length) return true
-
-  for (let i = 0; i < unique.length; i += 1) {
-    await ensureCached(unique[i], i + 1, unique.length)
-  }
-
-  await pruneCache(unique.map((item) => item.cacheUrl || item.url))
-  state.bundleStatus = `완료 ${unique.length}개`
-  updateDebug()
-  return true
-}
-
-async function pruneCache(activeUrls = []) {
-  const cache = await getMediaCache()
-  const keys = await cache.keys()
-  const meta = loadMeta()
-  const keep = new Set(activeUrls)
-
-  if (keys.length <= CONFIG.cacheMax) {
-    state.cacheStatus = `${keys.length}/${CONFIG.cacheMax}`
-    updateDebug()
-    return
-  }
-
-  const removable = keys
-    .map((request) => ({
-      request,
-      url: request.url,
-      keep: keep.has(request.url),
-      lastUsed: meta[request.url]?.lastUsed || 0,
-    }))
-    .filter((entry) => !entry.keep)
-    .sort((a, b) => a.lastUsed - b.lastUsed)
-
-  let count = keys.length
-  for (const entry of removable) {
-    if (count <= CONFIG.cacheMax) break
-    await cache.delete(entry.request)
-    delete meta[entry.url]
-    count -= 1
-  }
-
   saveMeta(meta)
-  state.cacheStatus = `${count}/${CONFIG.cacheMax}`
-  updateDebug()
+  if(incomingBytes>0 && bytes+incomingBytes>budget) throw createPlayerError('LV-CACHE-CAPACITY','저장 공간 부족: 기존 정상 재생목록 유지')
 }
 
 async function updateCacheStatus() {
@@ -1088,9 +1082,9 @@ async function updateCacheStatus() {
 
 function removeLocalStorageByPrefix(prefix) {
   try {
-    Object.keys(localStorage)
+    Object.keys(STORAGE)
       .filter((key) => key.startsWith(prefix))
-      .forEach((key) => localStorage.removeItem(key))
+      .forEach((key) => STORAGE.removeItem(key))
   } catch (error) {}
 }
 
@@ -1109,8 +1103,11 @@ async function clearPlaybackCaches() {
   try {
     removeLocalStorageByPrefix('lv-media-bundle-meta-')
     removeLocalStorageByPrefix('lv-playlist-bundle-')
-    localStorage.removeItem(META_KEY)
-    localStorage.removeItem(PLAYLIST_KEY)
+    STORAGE.removeItem(META_KEY)
+    STORAGE.removeItem(PLAYLIST_KEY)
+    STORAGE.removeItem(bundleJournal.key)
+    STORAGE.removeItem(SCHEDULE_KEY)
+    verifiedFiles.checked.clear()
   } catch (error) {}
 
   state.cacheStatus = 'cleared'
@@ -1118,17 +1115,10 @@ async function clearPlaybackCaches() {
   updateDebug()
 }
 
-async function hardRefreshFromCms(commandName = 'refresh') {
-  setStatus(commandName === 'refresh'
-    ? 'CMS 새로고침 명령 수신: 캐시 삭제 후 재시작'
-    : `CMS ${commandName} 명령 수신: 캐시 삭제 후 재시작`
-  )
-
-  await clearPlaybackCaches()
-
-  window.setTimeout(() => {
-    location.reload()
-  }, 300)
+async function hardRefreshFromCms(commandName='refresh') {
+  if(commandName !== 'refresh') await clearPlaybackCaches()
+  reportPlayerError('LV-COMMAND-RELOAD',commandName === 'refresh' ? '캐시를 보존하고 Player 재시작' : '캐시 삭제 후 Player 재시작',{command:commandName},'info',0)
+  setTimeout(()=>location.reload(),500)
 }
 
 async function clearMediaCache() {
@@ -1136,24 +1126,11 @@ async function clearMediaCache() {
   setStatus('미디어 캐시를 삭제했습니다')
 }
 
-async function getCachedBlobUrl(item) {
-  const fetchUrl = item.cacheUrl || item.url
-  const cache = await getMediaCache()
-  let response = await cache.match(fetchUrl)
-
-  if (!response) {
-    if (!navigator.onLine) throw new Error('offline cache miss')
-    await ensureCached(item, 1, 1)
-    response = await cache.match(fetchUrl)
-  }
-
-  if (!response) throw new Error('cache miss')
-
-  touchMeta(fetchUrl, { type: item.type, sourceUrl: item.url })
-  const blob = await response.clone().blob()
-  return URL.createObjectURL(blob)
+async function getCachedBlobUrl(item,signal){
+ const result=await ensureCached(item,1,1,signal);
+ if(signal?.aborted)throw Object.assign(new Error('cancelled'),{name:'AbortError'});
+ return URL.createObjectURL(result.blob);
 }
-
 
 function normalizeNotice(notice) {
   if (!notice || !notice.id) return null
@@ -1175,6 +1152,7 @@ async function fetchActiveNotice() {
     const data = await fetchLiteEndpoint('/api/notice-active', 'notice')
     return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
   } catch (error) {
+    if (error.status !== 404) throw error
     // 새 경량 API가 아직 배포 전이면 기존 player-state로 호환합니다.
     const data = await fetchPlayerState('notice-fallback')
     return normalizeNotice(data.notice || data.activeNotice || data.active || (Array.isArray(data.notices) ? data.notices[0] : null))
@@ -1196,12 +1174,12 @@ function getSeenNoticeStorageKey(noticeKey) {
 
 function hasSeenNotice(noticeKey) {
   if (!noticeKey) return false
-  try { return localStorage.getItem(getSeenNoticeStorageKey(noticeKey)) === '1' } catch { return false }
+  try { return STORAGE.getItem(getSeenNoticeStorageKey(noticeKey)) === '1' } catch { return false }
 }
 
 function markNoticeSeen(noticeKey) {
   if (!noticeKey) return
-  try { localStorage.setItem(getSeenNoticeStorageKey(noticeKey), '1') } catch {}
+  try { STORAGE.setItem(getSeenNoticeStorageKey(noticeKey), '1') } catch {}
 }
 
 function getNoticeOverlay() {
@@ -1215,15 +1193,18 @@ function getNoticeOverlay() {
 }
 
 function hideNoticeOverlay() {
-  if (state.noticeTimer) clearTimeout(state.noticeTimer)
-  state.noticeTimer = null
-  const overlay = document.getElementById('noticeOverlay')
-  if (overlay) {
-    overlay.classList.remove('is-active')
-    overlay.innerHTML = ''
+  state.noticeGeneration++
+  state.noticeLoadController?.abort();state.noticeLoadController=null
+  if(state.noticeTimer) clearTimeout(state.noticeTimer)
+  if(state.noticeMonitor) clearInterval(state.noticeMonitor)
+  state.noticeTimer=null;state.noticeMonitor=null
+  const overlay=document.getElementById('noticeOverlay')
+  if(overlay) {
+    overlay.querySelectorAll('video').forEach(v=>{v.onended=null;v.onerror=null;try{v.pause();v.removeAttribute('src');v.load()}catch(_){}})
+    overlay.classList.remove('is-active');overlay.replaceChildren()
   }
-  state.noticeVisible = false
-  state.activeNoticeId = ''
+  if(state.noticeObjectUrl) URL.revokeObjectURL(state.noticeObjectUrl)
+  state.noticeObjectUrl='';state.noticeVisible=false;state.activeNoticeId=''
   setMainPlaybackPaused(false)
 }
 
@@ -1262,7 +1243,7 @@ function getNoticeRepeatMode(notice = {}) {
 }
 
 function getNoticeSeenValue(noticeKey) {
-  try { return localStorage.getItem(getSeenNoticeStorageKey(noticeKey)) || '' } catch { return '' }
+  try { return STORAGE.getItem(getSeenNoticeStorageKey(noticeKey)) || '' } catch { return '' }
 }
 
 function shouldShowNoticeNow(notice, noticeKey, reason = 'poll') {
@@ -1285,106 +1266,57 @@ function markNoticeShown(notice, noticeKey) {
   const mode = getNoticeRepeatMode(notice)
   try {
     if (mode === 'always') return
-    if (mode === 'daily') localStorage.setItem(getSeenNoticeStorageKey(noticeKey), getKstDateKey())
-    else if (mode === 'interval') localStorage.setItem(getSeenNoticeStorageKey(noticeKey), String(Date.now()))
-    else localStorage.setItem(getSeenNoticeStorageKey(noticeKey), '1')
+    if (mode === 'daily') STORAGE.setItem(getSeenNoticeStorageKey(noticeKey), getKstDateKey())
+    else if (mode === 'interval') STORAGE.setItem(getSeenNoticeStorageKey(noticeKey), String(Date.now()))
+    else STORAGE.setItem(getSeenNoticeStorageKey(noticeKey), '1')
   } catch {}
 }
 
 function setMainPlaybackPaused(paused) {
-  for (const side of ['left', 'right']) {
-    const zone = getZone(side)
-    if (!zone) continue
-    zone.querySelectorAll('video').forEach((video) => {
-      try {
-        if (paused) video.pause()
-        else video.play().catch(() => {})
-      } catch {}
-    })
-  }
+  for(const side of ['left','right']) paused ? lanes[side].pause('notice') : lanes[side].resume('notice')
 }
 
-async function showNoticeOverlay(notice, reason = 'poll') {
-  if (!notice) return hideNoticeOverlay()
-  const noticeKey = getNoticeKey(notice)
-  const isSame = state.activeNoticeId === noticeKey && state.noticeVisible
-  if (isSame) return
-
-  if (!shouldShowNoticeNow(notice, noticeKey, reason)) {
-    if (state.noticeVisible) hideNoticeOverlay()
-    return
+async function showNoticeOverlay(notice,reason='poll') {
+  if(!notice) return hideNoticeOverlay()
+  const noticeKey=getNoticeKey(notice)
+  if(state.activeNoticeId===noticeKey && state.noticeVisible) return
+  if(!shouldShowNoticeNow(notice,noticeKey,reason)) return
+  hideNoticeOverlay()
+  const token=++state.noticeGeneration,overlay=getNoticeOverlay()
+  state.activeNoticeId=noticeKey;state.noticeVisible=true;setMainPlaybackPaused(true)
+  state.noticeLoadController=new AbortController()
+  const current=()=>token===state.noticeGeneration && state.noticeVisible
+  const fail=error=>{if(!current()) return;reportPlayerError('LV-NOTICE-PLAY-FAIL',error?.message || '공지 재생 실패',{noticeId:notice.id,title:notice.title},'error');hideNoticeOverlay()}
+  state.noticeTimer=setTimeout(()=>fail(new Error('공지 준비 시간 초과')),90000)
+  const revealed=()=>{
+    if(!current()) return
+    if(state.noticeTimer) clearTimeout(state.noticeTimer)
+    state.noticeTimer=null;overlay.classList.add('is-active');markNoticeShown(notice,noticeKey)
+    if(notice.priority!=='urgent' && getNoticeRepeatMode(notice)!=='always') state.noticeTimer=setTimeout(()=>{if(current())hideNoticeOverlay()},notice.durationSec*1000)
   }
-
-  const overlay = getNoticeOverlay()
-  if (state.noticeTimer) clearTimeout(state.noticeTimer)
-  state.activeNoticeId = noticeKey
-  state.noticeVisible = true
-  markNoticeShown(notice, noticeKey)
-  setMainPlaybackPaused(true)
-  setStatus(`공지 송출중: ${notice.title || notice.id}`)
-
-  if (notice.type === 'image') {
-    const item = { ...notice, url: notice.mediaUrl, cacheUrl: makeMediaFetchUrl(notice.mediaUrl), type: 'image', title: notice.title }
-    try {
-      const src = await getCachedBlobUrl(item)
-      overlay.innerHTML = `<div class="notice-stage"><div class="notice-badge">LocalVision 공지 송출중</div><img class="notice-media ${CONFIG.fit === 'contain' ? 'contain' : ''} fade-in" src="${src}" alt="${escapeHtml(notice.title)}" /></div>`
-      overlay.classList.add('is-active')
-    } catch (error) {
-      const key = `notice-image:${notice.id}`
-      if (!state.noticeErrorIds[key]) {
-        state.noticeErrorIds[key] = true
-        reportPlayerError('LV-NOTICE-MEDIA-MISSING', error?.message || '공지 이미지를 불러오지 못했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
-      }
-      hideNoticeOverlay()
-      return
-    }
-  } else if (notice.type === 'video') {
-    const item = { ...notice, url: notice.mediaUrl, cacheUrl: makeMediaFetchUrl(notice.mediaUrl), type: 'video', title: notice.title }
-    try {
-      const src = await getCachedBlobUrl(item)
-      overlay.innerHTML = `<div class="notice-stage"><div class="notice-badge">LocalVision 공지 송출중</div></div>`
-      const stage = overlay.querySelector('.notice-stage')
-      const video = document.createElement('video')
-      video.className = `notice-media ${CONFIG.fit === 'contain' ? 'contain' : ''} fade-in`
-      video.src = src
-      video.autoplay = true
-      video.muted = true
-      video.playsInline = true
-      video.controls = false
-      video.preload = 'auto'
-      video.onended = () => {
-        if (notice.priority === 'urgent' || getNoticeRepeatMode(notice) === 'always') {
-          try { video.currentTime = 0; video.play().catch(() => {}) } catch {}
-        } else {
-          hideNoticeOverlay()
+  try {
+    if(notice.type==='image' || notice.type==='video') {
+      const item={...notice,url:notice.mediaUrl,cacheUrl:makeMediaFetchUrl(notice.mediaUrl),type:notice.type}
+      const src=await getCachedBlobUrl(item,state.noticeLoadController.signal)
+      if(!current()){URL.revokeObjectURL(src);return}
+      state.noticeObjectUrl=src
+      const stage=document.createElement('div');stage.className='notice-stage';overlay.replaceChildren(stage)
+      const media=document.createElement(notice.type==='video'?'video':'img')
+      media.className=`notice-media ${CONFIG.fit==='contain'?'contain':''}`;stage.appendChild(media)
+      if(notice.type==='image') {media.onload=revealed;media.onerror=()=>fail(new Error('공지 이미지 표시 실패'));media.src=src}
+      else {
+        media.muted=true;media.defaultMuted=true;media.playsInline=true;media.preload='auto'
+        media.onerror=()=>fail(new Error(media.error?.message || '공지 영상 표시 실패'))
+        media.onended=()=>{
+          if(!current())return
+          if(notice.priority==='urgent' || getNoticeRepeatMode(notice)==='always'){media.currentTime=0;media.play().catch(fail)}else hideNoticeOverlay()
         }
+        media.src=src;media.load();await media.play();if(!current())return;revealed()
+        let position=Number(media.currentTime),progressAt=Date.now()
+        state.noticeMonitor=setInterval(()=>{if(!current())return;const pos=Number(media.currentTime);if(pos!==position){position=pos;progressAt=Date.now()}else if(Date.now()-progressAt>15000)fail(new Error('공지 영상 진행 정지'))},1000)
       }
-      video.onerror = () => {
-        reportPlayerError('LV-NOTICE-PLAY-FAIL', '공지 영상 재생에 실패했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
-        hideNoticeOverlay()
-      }
-      stage.appendChild(video)
-      overlay.classList.add('is-active')
-      setTimeout(() => video.play().catch((error) => {
-        reportPlayerError('LV-NOTICE-PLAY-FAIL', error?.message || '공지 영상 자동재생에 실패했습니다.', { noticeId: notice.id, title: notice.title }, 'error')
-        hideNoticeOverlay()
-      }), 100)
-    } catch (error) {
-      reportPlayerError('LV-NOTICE-MEDIA-MISSING', error?.message || '공지 영상을 불러오지 못했습니다.', { noticeId: notice.id, title: notice.title, mediaUrl: notice.mediaUrl }, 'error')
-      hideNoticeOverlay()
-      return
-    }
-  } else {
-    overlay.innerHTML = noticeTextMarkup(notice)
-    overlay.classList.add('is-active')
-  }
-
-  if (notice.priority !== 'urgent' && getNoticeRepeatMode(notice) !== 'always') {
-    state.noticeTimer = setTimeout(() => {
-      // 같은 noticeKey는 이미 표시 시작 시점에 저장했으므로 다음 폴링에서 다시 열리지 않습니다.
-      hideNoticeOverlay()
-    }, notice.durationSec * 1000)
-  }
+    } else {overlay.innerHTML=noticeTextMarkup(notice);revealed()}
+  }catch(error){fail(error)}
 }
 
 async function checkNotice(reason = 'poll') {
@@ -1399,9 +1331,10 @@ async function checkNotice(reason = 'poll') {
 }
 
 async function syncConfig(reason = 'scheduled') {
-  if (state.isSyncing) return
+  if(prefetchBusy){prefetchController?.abort();if(prefetchWork)await prefetchWork;}
+  if (state.isSyncing || state.scheduleApplying || prefetchBusy) return
   state.isSyncing = true
-
+  const oldSchedule=scheduleSnapshot()
   try {
     setStatus('CMS 재생목록 확인중...')
     const data = await fetchPlayerState(reason)
@@ -1448,25 +1381,22 @@ async function syncConfig(reason = 'scheduled') {
 
     if (!changed && state.leftItems.length + state.rightItems.length > 0) {
       state.lastSync = kstString()
+      saveScheduleBundle(state.rightItems)
+      const old=bundleJournal.read()?.active
+      if(old && JSON.stringify(old.schedule)!==JSON.stringify(scheduleSnapshot()))bundleJournal.commit({...old,schedule:scheduleSnapshot()})
       state.bundleStatus = '변경 없음'
       setStatus('CMS 확인 완료: 변경 없음')
       updateDebug()
       return
     }
 
-    if (CONFIG.bundleMode === 'cache' && CONFIG.activateWhenCached) {
-      await ensureBundleCached(nextLeft, nextRight)
-    }
+    await ensureBundleCached(nextLeft, nextRight)
 
-    state.leftItems = nextLeft
-    state.rightItems = nextRight
-    state.leftIndex = 0
-    state.rightIndex = 0
-
+    const selectedNow=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey).group
+    if(selectedNow && playlistSignature(normalizeItems(selectedNow.left))!==playlistSignature(nextLeft))throw createPlayerError('LV-SCHEDULE-CHANGED','파일 준비 중 시간대 변경: 다음 확인에서 다시 적용')
+    commitPrepared(nextLeft,nextRight)
     markGoodConfig()
     hideErrorScreen()
-    saveBundle(nextLeft, nextRight)
-    saveScheduleBundle(nextRight)
 
     await reportPlayerError('LV-PLAYLIST-APPLIED', `새 재생목록 적용 완료: left ${nextLeft.length}, right ${nextRight.length}`, {
       reason,
@@ -1480,13 +1410,12 @@ async function syncConfig(reason = 'scheduled') {
     }, 'info', 60000)
     await flushQueuedPlayerErrors('after-playlist-applied')
 
-    startPlayback('left')
-    window.setTimeout(() => startPlayback('right'), 500)
-
     state.lastSync = kstString()
     setStatus('새 재생목록 적용 완료')
     updateDebug()
   } catch (error) {
+    restoreSchedule(oldSchedule)
+    delivery.phase='blocked';delivery.error=error.message;requestHealthReport()
     console.warn(error)
     if (!state.leftItems.length && !state.rightItems.length) {
       const ok = loadSavedBundle()
@@ -1512,6 +1441,7 @@ async function syncConfig(reason = 'scheduled') {
     updateDebug()
   } finally {
     state.isSyncing = false
+    queuePrefetch()
   }
 }
 
@@ -1527,34 +1457,39 @@ async function handleRemoteCommand(devices, commandFromState = null) {
 
   // CMS에서 보낸 새로고침 계열 명령은 단순 reload가 아니라
   // 미디어 캐시 + 저장된 playlist bundle을 삭제한 뒤 다시 시작합니다.
-  const handled = localStorage.getItem(handledCommandKey)
+  const handled = STORAGE.getItem(handledCommandKey)
   const commandKey = `${command}:${commandAt}`
 
   // 이전 버전은 commandAt만 저장했으므로, 이전 저장값도 함께 중복 처리합니다.
   if (handled === commandKey || handled === commandAt) return false
 
+  recordCommandResult(command,commandAt,'received')
+
   const hardRefreshCommands = new Set(['refresh', 'hard_refresh', 'clear_cache_refresh', 'cache_refresh'])
   const noticeCommands = new Set(['notice_refresh', 'notice', 'reload_notice'])
 
   if (hardRefreshCommands.has(command)) {
-    localStorage.setItem(handledCommandKey, commandKey)
+    STORAGE.setItem(handledCommandKey, commandKey)
+    recordCommandResult(command,commandAt,'accepted-restart')
     await hardRefreshFromCms(command)
     return true
   }
 
   if (noticeCommands.has(command)) {
-    localStorage.setItem(handledCommandKey, commandKey)
+    STORAGE.setItem(handledCommandKey, commandKey)
     setStatus('CMS 공지 명령 수신: 공지 확인중')
     await checkNotice('remote-command')
+    recordCommandResult(command,commandAt,'completed')
     await syncConfig('notice-command')
     return true
   }
 
   if (command === 'screenshot' || command === 'capture') {
     if (window.LocalVisionNative?.captureScreenshot) {
-      localStorage.setItem(handledCommandKey, commandKey)
+      STORAGE.setItem(handledCommandKey, commandKey)
       setStatus('CMS 화면 캡처 명령 수신: APP Shell에 캡처 요청')
       try {
+        recordCommandResult(command,commandAt,'native-requested')
         window.LocalVisionNative.captureScreenshot(JSON.stringify({
           command, commandAt, store: CONFIG.store, id: CONFIG.appId, source: PLAYER_BUILD, at: nowUtcIso(),
         }))
@@ -1569,13 +1504,15 @@ async function handleRemoteCommand(devices, commandFromState = null) {
   }
 
   if (command === 'clear_webview_cache' && window.LocalVisionNative?.clearWebViewCache) {
-    localStorage.setItem(handledCommandKey, commandKey)
+    STORAGE.setItem(handledCommandKey, commandKey)
+    recordCommandResult(command,commandAt,'native-requested')
     window.LocalVisionNative.clearWebViewCache(JSON.stringify({ command, commandAt, store: CONFIG.store, id: CONFIG.appId }))
     return true
   }
 
   if (command === 'reload_app' && window.LocalVisionNative?.reloadApp) {
-    localStorage.setItem(handledCommandKey, commandKey)
+    STORAGE.setItem(handledCommandKey, commandKey)
+    recordCommandResult(command,commandAt,'native-requested')
     window.LocalVisionNative.reloadApp(JSON.stringify({ command, commandAt, store: CONFIG.store, id: CONFIG.appId }))
     return true
   }
@@ -1583,76 +1520,37 @@ async function handleRemoteCommand(devices, commandFromState = null) {
   return false
 }
 
+function recordCommandResult(command,commandAt,status) {
+  const result={command,commandAt,status,reportedAt:nowUtcIso(),sessionId:SESSION_ID}
+  try{STORAGE.setItem('lv-last-command-result',JSON.stringify(result))}catch(_){}
+  reportPlayerError('LV-COMMAND-RESULT',`원격 명령 ${status}`,result,'info',0);requestHealthReport()
+}
+
 async function checkRemoteCommand() {
-  if (!CONFIG.apiBase || !CONFIG.store) return
-  try {
-    const data = await fetchLiteEndpoint('/api/player-command', 'command')
-    await handleRemoteCommand(data.device ? [data.device] : (data.devices || []), data.command)
-  } catch (error) {
-    try {
-      const data = await fetchPlayerState('command-fallback')
-      await handleRemoteCommand(data.devices || [], data.command)
-      if (data.notice || data.activeNotice) await showNoticeOverlay(normalizeNotice(data.notice || data.activeNotice), 'command')
-    } catch (_) {}
-  }
+  return runExclusive('command',async()=>{
+    if(!CONFIG.apiBase || !CONFIG.store) return
+    try {const data=await fetchLiteEndpoint('/api/player-command','command');await handleRemoteCommand(data.device?[data.device]:(data.devices || []),data.command)}
+    catch(error){if(error.status===404){const data=await fetchPlayerState('command-fallback');await handleRemoteCommand(data.devices || [],data.command)}else reportPlayerError('LV-COMMAND-CHECK-FAILED',error.message,{},'warning',600000)}
+  })
 }
 
 async function sendHeartbeat() {
-  if (!CONFIG.apiBase || !CONFIG.store) return
-  const now = nowUtcIso()
-  const body = {
-    id: CONFIG.appId || CONFIG.deviceId || '',
-    appId: CONFIG.appId || '',
-    deviceId: CONFIG.deviceId || '',
-    store: CONFIG.store,
-    source: 'player',
-    role: 'player',
-    online: true,
-    lastSeen: now,
-    lastSeenKst: kstString(now),
-    playerVersion: PLAYER_BUILD,
-    appShell: Boolean(CONFIG.appShell || CONFIG.appVersion),
-    appVersion: CONFIG.appVersion || '',
-    currentContent: state.leftItems[state.leftIndex]?.fileName || state.leftItems[state.leftIndex]?.title || '',
-    playStatus: state.noticeVisible ? 'notice' : 'playing',
-    cacheStatus: state.cacheStatus || '',
-    noticeStatus: state.noticeVisible ? 'active' : 'idle',
-    errorCount: state.playbackFailureCount || 0,
-  }
-
-  let lastError = null
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  return runExclusive('heartbeat',async()=>{
+    if(!CONFIG.apiBase || !CONFIG.store) return
+    const health=healthPayload(),now=nowUtcIso()
+    const body={id:CONFIG.appId || CONFIG.deviceId,appId:CONFIG.appId,deviceId:CONFIG.deviceId,store:CONFIG.store,source:'player',role:'player',online:true,lastSeen:now,
+      playerVersion:PLAYER_BUILD,appShell:Boolean(CONFIG.appShell || CONFIG.appVersion),appVersion:CONFIG.appVersion,
+      playStatus:state.blackModeActive?'black-mode':state.noticeVisible?'notice':([health.left,health.right].every(x=>['playing','image','empty'].includes(x.status))?'playing':'degraded'),
+      currentContent:health.left.fileName,errorCount:playbackMetrics.failed,health}
     try {
       let data
-      try {
-        data = await fetchJson(`${CONFIG.apiBase}/api/heartbeat`, {
-          method: 'POST',
-          attempts: 1,
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-      } catch (heartbeatError) {
-        // 구버전 CMS 호환: /api/heartbeat가 없으면 기존 player-state POST로 1회 fallback합니다.
-        data = await fetchJson(`${CONFIG.apiBase}/api/player-state`, {
-          method: 'POST',
-          attempts: 1,
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-      }
-      state.lastHeartbeat = data?.device?.lastSeenKst || data?.updatedAtKst || kstString(now)
-      await flushQueuedPlayerErrors('after-heartbeat')
-      updateDebug()
-      return
-    } catch (error) {
-      lastError = error
-      if (attempt < 3) await sleep(1000 * attempt)
-    }
-  }
-
-  reportPlayerError('LV-HEARTBEAT-FAILED', lastError?.message || 'heartbeat failed', { store: CONFIG.store, attempts: 3, lastSeenUtc: now, lastSeenKst: kstString(now) }, 'warning')
+      try {data=await fetchJson(`${CONFIG.apiBase}/api/heartbeat`,{method:'POST',attempts:2,headers:{'content-type':'application/json'},body:JSON.stringify(body)})}
+      catch(error){if(error.status!==404)throw error;data=await fetchJson(`${CONFIG.apiBase}/api/player-state`,{method:'POST',attempts:1,headers:{'content-type':'application/json'},body:JSON.stringify(body)})}
+      state.lastHeartbeat=kstString();lastHealthSentAt=Date.now();flushQueuedPlayerErrors();updateDebug()
+      if(!data.healthAccepted) requestHealthReport()
+    }catch(error){reportPlayerError('LV-HEARTBEAT-FAILED',error.message,{store:CONFIG.store},'warning')}
+  })
 }
-
 
 function getZone(side) {
   return side === 'left' ? els.leftZone : els.rightZone
@@ -1710,51 +1608,9 @@ function releaseObjectUrl(side) {
   }
 }
 
-function startPlayback(side) {
-  clearSideTimer(side)
-  clearWatchdog(side)
+function startPlayback(side) { clearSideTimer(side);clearWatchdog(side);lanes[side].setPlaylist(getItems(side),getIndex(side)) }
 
-  const items = getItems(side)
-  const zone = getZone(side)
-
-  if (!items.length) {
-    zone.innerHTML = emptyMarkup(side)
-    return
-  }
-
-  const currentIndex = getIndex(side) % items.length
-  setIndex(side, currentIndex)
-  playItem(side, items[currentIndex])
-}
-
-async function playItem(side, item) {
-  if (!item?.url) return scheduleNext(side, 5)
-  if (isBlacklisted(item)) return scheduleNext(side, 1)
-
-  state.playToken[side] += 1
-  const token = state.playToken[side]
-
-  try {
-    const src = CONFIG.videoMode === 'cache' || item.type !== 'video'
-      ? await getCachedBlobUrl(item)
-      : item.url
-
-    if (token !== state.playToken[side]) {
-      if (src.startsWith('blob:')) URL.revokeObjectURL(src)
-      return
-    }
-
-    releaseObjectUrl(side)
-    if (src.startsWith('blob:')) state.objectUrls[side] = src
-
-    if (item.type === 'video') playVideo(side, item, src, token)
-    else playImage(side, item, src, token)
-  } catch (error) {
-    console.warn('play failed', side, error.message)
-    const code = error.code || (String(error.message || '').includes('cache') ? 'LV-CACHE-CORRUPT' : 'LV-MEDIA-MISSING')
-    handlePlaybackFailure(side, item, code, error.message || '콘텐츠 파일을 불러오지 못했습니다.')
-  }
-}
+function playItem(side,item) { lanes[side].play(item) }
 
 function applyFit(element) {
   element.className = `media fade-in ${CONFIG.fit === 'contain' ? 'contain' : ''}`
@@ -1765,23 +1621,7 @@ function swapWhenReady(side, element, token) {
   getZone(side).replaceChildren(element)
 }
 
-function playImage(side, item, src, token) {
-  const img = document.createElement('img')
-  applyFit(img)
-  img.src = src
-  img.alt = item.title || 'LocalVision image'
-
-  img.onload = () => {
-    if (token !== state.playToken[side]) return
-    swapWhenReady(side, img, token)
-    markPlaybackSuccess()
-    scheduleNext(side, item.duration || 20)
-  }
-
-  img.onerror = () => {
-    handlePlaybackFailure(side, item, 'LV-MEDIA-MISSING', '이미지 파일을 불러오지 못했습니다.')
-  }
-}
+function playImage(side,item) {lanes[side].play(item)}
 
 function mediaDebugInfo(media, item = {}) {
   const err = media?.error
@@ -1799,104 +1639,13 @@ function mediaDebugInfo(media, item = {}) {
   }
 }
 
-function playVideo(side, item, src, token) {
-  const video = document.createElement('video')
-  applyFit(video)
-  video.src = src
-  video.autoplay = false
-  video.muted = true
-  video.playsInline = true
-  video.preload = 'auto'
-  video.controls = false
-
-  let swapped = false
-  let started = false
-
-  const reveal = () => {
-    if (swapped || token !== state.playToken[side]) return
-    swapped = true
-
-    try { video.currentTime = 0 } catch {}
-
-    swapWhenReady(side, video, token)
-
-    const delay = side === 'right' ? 200 : 0
-    setTimeout(() => {
-      if (token !== state.playToken[side]) return
-      video.play().then(() => {
-        started = true
-        markPlaybackSuccess()
-        clearWatchdog(side)
-      }).catch(() => {
-        setTimeout(() => {
-          if (token !== state.playToken[side]) return
-          video.play().catch((error) => {
-            if (token !== state.playToken[side]) return
-            handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', error?.message || '영상 재생에 실패했습니다.', mediaDebugInfo(video, item))
-          })
-        }, 300)
-      })
-    }, delay)
-  }
-
-  video.onloadeddata = reveal
-  video.oncanplay = reveal
-
-  video.onended = () => {
-    if (token !== state.playToken[side]) return
-    next(side)
-  }
-  video.onerror = () => {
-    if (token !== state.playToken[side]) return
-    handlePlaybackFailure(side, item, 'LV-MEDIA-PLAY-FAIL', '영상 파일 로딩 또는 재생에 실패했습니다.', mediaDebugInfo(video, item))
-  }
-
-  video.onloadedmetadata = () => {
-    if (token !== state.playToken[side]) return
-    if (Number.isFinite(video.duration) && video.duration > 0) {
-      setSideTimer(side, () => next(side), Math.ceil(video.duration + 2) * 1000)
-    }
-  }
-
-  setWatchdog(side, () => {
-    if (token !== state.playToken[side]) return
-    if (!started) handlePlaybackFailure(side, item, 'LV-MEDIA-WATCHDOG', '영상 시작 시간이 초과되어 다음 콘텐츠로 이동합니다.', mediaDebugInfo(video, item))
-  }, 15000)
-
-  const safetyMs = Math.max(60, Number(item.duration || 0) || 1800) * 1000
-  setSideTimer(side, () => next(side), safetyMs)
-
-  try { video.load() } catch {}
-}
+function playVideo(side,item) {lanes[side].play(item)}
 
 function scheduleNext(side, durationSeconds) {
   setSideTimer(side, () => next(side), Math.max(3, Number(durationSeconds || 20)) * 1000)
 }
 
-function next(side) {
-  clearWatchdog(side)
-  const items = getItems(side)
-  if (!items.length) return
-  let nextIndex = (getIndex(side) + 1) % items.length
-  let found = false
-  for (let i = 0; i < items.length; i += 1) {
-    const idx = (nextIndex + i) % items.length
-    if (!isBlacklisted(items[idx])) {
-      nextIndex = idx
-      found = true
-      break
-    }
-  }
-  if (!found) {
-    // 모든 파일이 이번 세션에서 제외되면 무한 빈 화면을 막기 위해 세션 blacklist를 1회 초기화합니다.
-    state.sessionBlacklist = {}
-    nextIndex = (getIndex(side) + 1) % items.length
-    setStatus(`${side} 세션 제외 목록 초기화 후 재시도`)
-  }
-  setIndex(side, nextIndex)
-  playItem(side, items[nextIndex])
-}
-
+function next(side) {lanes[side].next()}
 
 async function checkPlayerBuildVersion(reason = 'poll') {
   if (!CONFIG.versionPollMs || state.versionReloadPending) return
@@ -1973,30 +1722,17 @@ function fireAndForget(label, task) {
 }
 
 function startOperationIntervals() {
-  if (state.intervalsStarted) return
-  state.intervalsStarted = true
-
-  // 정기 호출은 첫 API 성공 여부와 무관하게 먼저 등록합니다.
-  // 첫 호출은 boot()에서 즉시 별도 실행하고, 이후에는 아래 주기대로만 반복합니다.
-  if (CONFIG.playerStatePollMs > 0) {
-    setInterval(() => syncConfig('player-state-interval'), CONFIG.playerStatePollMs)
-  }
-  if (CONFIG.scheduleCheckMs > 0) {
-    setInterval(() => applyLocalSchedule('schedule-interval'), CONFIG.scheduleCheckMs)
-  }
-  if (CONFIG.noticePollMs > 0) {
-    setInterval(() => checkNotice('notice-interval'), CONFIG.noticePollMs)
-  }
-  if (CONFIG.blackModePollMs > 0) {
-    setInterval(() => checkBlackMode('black-mode-interval'), CONFIG.blackModePollMs)
-  }
-  if (CONFIG.appConfigPollMs > 0 && CONFIG.appId) {
-    setInterval(() => checkAppConfig('app-config-interval'), CONFIG.appConfigPollMs)
-  }
-  if (CONFIG.heartbeatMs > 0) {
-    setInterval(() => sendHeartbeat(), CONFIG.heartbeatMs)
-  }
-  setInterval(updateDebug, 2000)
+  if(state.intervalsStarted)return
+  state.intervalsStarted=true
+  const interval=(name,ms,fn)=>{if(Number.isFinite(ms) && ms>0)setInterval(()=>runExclusive(name,fn).catch(e=>reportPlayerError('LV-BACKGROUND-TASK',e.message,{task:name},'warning')),Math.max(1000,ms))}
+  interval('sync',CONFIG.playerStatePollMs,()=>syncConfig('player-state-interval'))
+  interval('schedule',CONFIG.scheduleCheckMs,()=>applyLocalSchedule('schedule-interval'))
+  interval('notice',CONFIG.noticePollMs,()=>checkNotice('notice-interval'))
+  interval('black-mode',CONFIG.blackModePollMs,()=>checkBlackMode('black-mode-interval'))
+  if(CONFIG.appId)interval('app-config',CONFIG.appConfigPollMs,()=>checkAppConfig('app-config-interval'))
+  if(CONFIG.commandPollMs>0)setInterval(()=>checkRemoteCommand().catch(()=>{}),Math.max(1000,CONFIG.commandPollMs))
+  if(CONFIG.heartbeatMs>0)setInterval(()=>sendHeartbeat().catch(()=>{}),Math.max(1000,CONFIG.heartbeatMs))
+  setInterval(updateDebug,2000)
 }
 
 function runImmediateApiBoot() {
@@ -2007,6 +1743,8 @@ function runImmediateApiBoot() {
   fireAndForget('black-mode-startup', () => checkBlackMode('startup-immediate'))
   if (CONFIG.noticePollMs > 0) fireAndForget('notice-startup', () => checkNotice('startup-immediate'))
   fireAndForget('heartbeat', () => sendHeartbeat())
+  fireAndForget('command-startup', () => checkRemoteCommand())
+  outbox.schedule(1000)
 }
 
 async function boot() {
@@ -2029,7 +1767,8 @@ async function boot() {
   // 저장된 콘텐츠가 있으면 API 응답을 기다리지 않고 즉시 재생합니다.
   loadSavedScheduleBundle()
   if (loadSavedBundle()) {
-    applyLocalSchedule('boot-saved-schedule')
+    await selectBootBundle()
+    queuePrefetch()
     startPlayback('left')
     window.setTimeout(() => startPlayback('right'), 500)
     setStatus('저장된 캐시 재생 시작 · API 즉시 확인 중')
@@ -2064,4 +1803,11 @@ window.addEventListener('unhandledrejection', (event) => {
   reportPlayerError('LV-UNKNOWN', message, { type: 'unhandledrejection' }, 'error')
 })
 
-boot()
+document.addEventListener('visibilitychange',()=>{
+  for(const side of ['left','right']) document.visibilityState==='hidden' ? lanes[side].pause('hidden') : lanes[side].resume('hidden')
+  if(document.visibilityState==='visible'){outbox.schedule(1000);requestHealthReport()}
+})
+window.addEventListener('online',()=>{outbox.schedule(1000);checkRemoteCommand().catch(()=>{});sendHeartbeat().catch(()=>{})})
+window.addEventListener('pageshow',event=>{if(event.persisted){startPlayback('left');startPlayback('right');requestHealthReport()}})
+window.addEventListener('pagehide',()=>{for(const side of ['left','right'])lanes[side].stop();outbox.persist()})
+boot().catch(error=>reportPlayerError('LV-BOOT-FAILED',error.message,{},'fatal'))
