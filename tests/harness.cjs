@@ -9,7 +9,7 @@ function setup(options={}) {
   const timer=(fn,ms)=>{timers.set(++seq,{fn,at:now+Math.max(0,ms)});return seq;};
   class Clock extends Date {constructor(...a){super(...(a.length?a:[now]));}static now(){return now;}}
   class Element {
-    constructor(tag){this.tag=tag;this._src='';this.paused=true;this.currentTime=0;this.duration=options.duration || 9;this.ended=false;this.frameTimer=null;this.children=[];this.alloc=false;elements.push(this);}
+    constructor(tag){this.tag=tag;this.style={};this.readyState=options.readyState ?? 4;this._src='';this.paused=true;this.currentTime=0;this.duration=options.duration || 9;this.ended=false;this.frameTimer=null;this.children=[];this.alloc=false;elements.push(this);}
     set src(value){this._src=value;if(this.tag==='img' && value && !value.includes('loading.jpg'))timer(()=>this.onload?.(),10);}
     get src(){return this._src;}
     setAttribute(){} removeAttribute(k){if(k==='src')this.src='';}
@@ -18,6 +18,7 @@ function setup(options={}) {
     pause(){this.paused=true;if(this.frameTimer)timers.delete(this.frameTimer);}
     play(){
       this.calls=(this.calls || 0)+1;
+      if(options.deferPlay)return new Promise(()=>{});
       if(options.rejectFirst && this.calls===1)return Promise.reject(Object.assign(new Error('policy'),{name:'NotAllowedError'}));
       if(options.rejectAlways)return Promise.reject(Object.assign(new Error('policy'),{name:'NotAllowedError'}));
       this.paused=false;this.onplaying?.();

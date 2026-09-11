@@ -39,6 +39,11 @@ html, body {
 
 .media.contain { object-fit: contain; }
 
+/* Dedicated muted signage playback: keep platform transport overlays off-screen. */
+video.media::-webkit-media-controls { display: none !important; }
+video.media::-webkit-media-controls-overlay-play-button { display: none !important; }
+video.media::-webkit-media-controls-start-playback-button { display: none !important; }
+
 .empty {
   width: 100%;
   height: 100%;
@@ -353,3 +358,8 @@ html, body {
   font-weight: 900;
   backdrop-filter: blur(10px);
 }
+
+/* Preserve the supplied artwork without cropping in either lane. */
+.media.lv-video-waiting { object-fit: contain; background: #fff; }
+.left-zone .empty.loading { background: #fff url("./waiting-left.jpg?v=1.9.3") center / contain no-repeat; }
+.right-zone .empty.loading { background: #fff url("./waiting-right.jpg?v=1.9.3") center / contain no-repeat; }

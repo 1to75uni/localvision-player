@@ -1,4 +1,4 @@
-/* LocalVision v1.9.0. Dependency-free runtime; also exercised by node:test. */
+/* LocalVision v1.9.3. Dependency-free runtime; also exercised by node:test. */
 (function (root) {
   'use strict';
   const clamp = (v, lo, hi, fallback) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : fallback;
@@ -119,10 +119,11 @@
       this.src = '';
       if (this.releaseGate) {this.releaseGate(); this.releaseGate = null;}
     }
-    placeholder() {
-      if (this.poster) {this.o.zone.replaceChildren(this.poster.element);return;}
-      const img = document.createElement('img'); img.className = 'media contain lv-fallback';
-      img.src = this.o.fallback || './loading.jpg'; img.alt = 'LocalVision';
+    waitingSource() {return this.side === 'right' ? './waiting-right.jpg?v=1.9.3' : './waiting-left.jpg?v=1.9.3';}
+    placeholder(forceLogo = false) {
+      if (this.poster && !forceLogo) {this.o.zone.replaceChildren(this.poster.element);return;}
+      const img = document.createElement('img'); img.className = 'media contain lv-fallback lv-video-waiting';
+      img.src = forceLogo ? this.waitingSource() : (this.o.fallback || this.waitingSource()); img.alt = 'LocalVision';
       this.o.zone.replaceChildren(img);
     }
     setPlaylist(items, startIndex = 0) {
@@ -156,7 +157,7 @@
       const token = ++this.generation; this.cleanup(); this.current = item; this.terminal = false;
       this.currentTime = 0; this.duration = 0; this.firstFrameAt = 0; this.playedMs = 0; this.frameCount = 0;
       this.progressTick = 0; this.lastProgressAt = 0; this.attemptId = uid(); this.lastError = null;
-      this.o.onItem?.(this.side, item, this.index); this.placeholder();
+      this.o.onItem?.(this.side, item, this.index); this.placeholder(item.type === 'video');
       if (this.pauses.size) {this.change('paused', [...this.pauses].join(', ')); return;}
       this.controller = new AbortController();
       this.change('loading', '파일 준비 중');
@@ -195,10 +196,18 @@
       el.className = `media ${this.o.fit === 'contain' ? 'contain' : ''}`;
       el.muted = true; el.defaultMuted = true; el.setAttribute('muted','');
       el.playsInline = true; el.setAttribute('playsinline',''); el.preload = 'auto'; el.autoplay = false; el.controls = false;
-      this.o.zone.replaceChildren(el); this.change('starting', '영상 시작 확인 중');
+      // Avoid the platform's default video poster before decoding starts.
+      el.poster = this.waitingSource();
+      el.style.opacity = '0';
+      const waiting = document.createElement('img');
+      waiting.className = 'media contain lv-video-waiting'; waiting.alt = 'LocalVision'; waiting.src = this.waitingSource();
+      this.o.zone.replaceChildren(waiting, el); this.change('starting', '영상 시작 확인 중');
       let playBusy = false, attempts = 0, lastPlayError = null;
       const started = () => {
         if (!this.valid(token)) return;
+        // Do not wait solely for a compositor callback while the video is transparent.
+        // A playing event / fulfilled play() with current-frame data can reveal it too.
+        if (!el.paused && el.readyState >= 2) el.style.opacity = '1';
         this.lastProgressAt = Date.now(); this.progressTick = Date.now();
         if (this.releaseGate) {this.releaseGate(); this.releaseGate = null;}
       };
@@ -217,6 +226,7 @@
       };
       const progress = (position, frame) => {
         if (!this.valid(token)) return;
+        el.style.opacity = '1';
         const now = Date.now();
         if (!this.firstFrameAt) {
           this.firstFrameAt = now; this.event('LV-PLAY-START', '영상 첫 화면 진행 확인', 'info');

@@ -1,11 +1,12 @@
 {
-  "build": "v1.9.1-navigation-hotfix",
-  "version": "1.9.1",
-  "updatedAt": "2026-09-10",
+  "build": "v1.9.3-logo-video-start",
+  "version": "1.9.3",
+  "updatedAt": "2026-09-11",
   "highlights": [
-    "Normalize redirected cached HTML before responding to navigations",
-    "Network fallback when document cache cannot be read",
-    "Preserve media cache and verified playlist journal"
+    "Separate supplied waiting artwork for left and right lanes",
+    "Artwork remains visible until video playback starts",
+    "Preserve aspect ratio without cropping",
+    "Retain verified playlists and navigation repair"
   ],
-  "notes": "Web Player hotfix. Physical WebView confirmation pending."
+  "notes": "Web Player update. Physical TV appearance requires confirmation."
 }

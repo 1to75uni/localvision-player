@@ -2,67 +2,67 @@ TAP version 13
 # Subtest: full Player boot loads both playlists, caches media and sends truthful health
 ok 1 - full Player boot loads both playlists, caches media and sends truthful health
   ---
-  duration_ms: 103.112698
+  duration_ms: 95.773465
   type: 'test'
   ...
 # Subtest: command poll is active and ordinary refresh preserves media cache
 ok 2 - command poll is active and ordinary refresh preserves media cache
   ---
-  duration_ms: 165.180466
+  duration_ms: 154.925664
   type: 'test'
   ...
 # Subtest: notice and black mode share suspension ownership and resume both sides
 ok 3 - notice and black mode share suspension ownership and resume both sides
   ---
-  duration_ms: 94.909595
+  duration_ms: 94.655166
   type: 'test'
   ...
 # Subtest: log storage rejection retains logs while playback continues
 ok 4 - log storage rejection retains logs while playback continues
   ---
-  duration_ms: 114.192691
+  duration_ms: 112.539077
   type: 'test'
   ...
 # Error: offline
-#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:27:24)
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:27:24)
 #     at Object.timedFetch (evalmachine.<anonymous>:16:35)
 #     at fetchJson (app.js:491:30)
 #     at async fetchPlayerState (app.js:560:12)
 #     at async syncConfig (app.js:1340:18)
 #     at async runExclusive (app.js:321:15) {
-#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa0dc577-c3b6-461b-afbc-2a796d378697&t=1700000010000&reason=player-state-interval',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_ce208210-71c9-4caa-976d-f006dff697b7&t=1700000010000&reason=player-state-interval',
 #   endpoint: '/api/player-state'
 # }
 # Error: offline
-#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:27:24)
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:27:24)
 #     at Object.timedFetch (evalmachine.<anonymous>:16:35)
 #     at fetchJson (app.js:491:30)
 #     at async fetchPlayerState (app.js:560:12)
 #     at async syncConfig (app.js:1340:18)
 #     at async runExclusive (app.js:321:15) {
-#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa0dc577-c3b6-461b-afbc-2a796d378697&t=1700000020000&reason=player-state-interval',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_ce208210-71c9-4caa-976d-f006dff697b7&t=1700000020000&reason=player-state-interval',
 #   endpoint: '/api/player-state'
 # }
 # Error: offline
-#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:27:24)
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:27:24)
 #     at Object.timedFetch (evalmachine.<anonymous>:16:35)
 #     at fetchJson (app.js:491:30)
 #     at async fetchPlayerState (app.js:560:12)
 #     at async syncConfig (app.js:1340:18)
 #     at async runExclusive (app.js:321:15) {
-#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa0dc577-c3b6-461b-afbc-2a796d378697&t=1700000030000&reason=player-state-interval',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_ce208210-71c9-4caa-976d-f006dff697b7&t=1700000030000&reason=player-state-interval',
 #   endpoint: '/api/player-state'
 # }
 # Subtest: offline state sync keeps the last valid media and playlist
 ok 5 - offline state sync keeps the last valid media and playlist
   ---
-  duration_ms: 453.625706
+  duration_ms: 441.027677
   type: 'test'
   ...
 # Subtest: left-only playlist changes keep right playback generation intact
 ok 6 - left-only playlist changes keep right playback generation intact
   ---
-  duration_ms: 79.200178
+  duration_ms: 77.121437
   type: 'test'
   ...
 # Error: 파일 구간 1의 SHA-256 불일치
@@ -75,46 +75,46 @@ ok 6 - left-only playlist changes keep right playback generation intact
 #     at async VerifiedFiles.prepare (evalmachine.<anonymous>:37:18)
 #     at async ensureBundleCached (app.js:1030:16)
 #     at async syncConfig (app.js:1393:5)
-#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:89:2) {
+#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:89:2) {
 #   code: 'LV-INTEGRITY-MISMATCH'
 # }
 # Subtest: incorrect expected file digest blocks whole candidate and preserves active journal
 ok 7 - incorrect expected file digest blocks whole candidate and preserves active journal
   ---
-  duration_ms: 87.333328
+  duration_ms: 79.656817
   type: 'test'
   ...
 # Subtest: next schedule prefetch is ready before switch and switch works offline
 ok 8 - next schedule prefetch is ready before switch and switch works offline
   ---
-  duration_ms: 79.629909
+  duration_ms: 78.206281
   type: 'test'
   ...
 # Subtest: boot selects retained previous bundle when active files are missing
 ok 9 - boot selects retained previous bundle when active files are missing
   ---
-  duration_ms: 81.49084
+  duration_ms: 80.977561
   type: 'test'
   ...
 # Subtest: overnight player selection agrees with start-day semantics
 ok 10 - overnight player selection agrees with start-day semantics
   ---
-  duration_ms: 77.446521
+  duration_ms: 76.301619
   type: 'test'
   ...
 # Error: offline
-#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:27:24)
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:27:24)
 #     at Object.timedFetch (evalmachine.<anonymous>:16:35)
 #     at fetchJson (app.js:491:30)
 #     at async fetchPlayerState (app.js:560:12)
 #     at async syncConfig (app.js:1340:18) {
-#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_bd1ae217-b490-454e-87e5-23a8b9d0c8b5&t=1700000000000&reason=startup-immediate',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_de3243b0-d487-462d-85c7-b2307de2448b&t=1700000000000&reason=startup-immediate',
 #   endpoint: '/api/player-state'
 # }
 # Subtest: new app context restores a committed bundle offline after restart
 ok 11 - new app context restores a committed bundle offline after restart
   ---
-  duration_ms: 163.464669
+  duration_ms: 201.356118
   type: 'test'
   ...
 # Error: 재생목록 적용 기록 저장 실패: quota injected
@@ -122,7 +122,7 @@ ok 11 - new app context restores a committed bundle offline after restart
 #     at Journal.commit (evalmachine.<anonymous>:71:18)
 #     at commitPrepared (app.js:254:16)
 #     at syncConfig (app.js:1397:5)
-#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.1_NAVIGATION_HOTFIX/tests/app.test.cjs:119:142)
+#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.3_LOGO_VIDEO_START/tests/app.test.cjs:119:142)
 #     at async Test.run (node:internal/test_runner/test:1389:7)
 #     at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
 #   code: 'LV-STORAGE-WRITE'
@@ -130,315 +130,357 @@ ok 11 - new app context restores a committed bundle offline after restart
 # Subtest: journal quota refusal leaves both live lanes and last saved bundle untouched
 ok 12 - journal quota refusal leaves both live lanes and last saved bundle untouched
   ---
-  duration_ms: 78.934246
+  duration_ms: 79.749319
   type: 'test'
   ...
 # Subtest: chunk SHA-256 matches independent Node hashes at boundaries
 ok 13 - chunk SHA-256 matches independent Node hashes at boundaries
   ---
-  duration_ms: 24.965109
+  duration_ms: 25.558503
   type: 'test'
   ...
 # Subtest: truncated and same-length corrupt files fail origin verification
 ok 14 - truncated and same-length corrupt files fail origin verification
   ---
-  duration_ms: 3.606181
+  duration_ms: 3.071142
   type: 'test'
   ...
 # Subtest: tampered manifest revision and malformed chunk counts are rejected
 ok 15 - tampered manifest revision and malformed chunk counts are rejected
   ---
-  duration_ms: 2.162186
+  duration_ms: 1.839881
   type: 'test'
   ...
 # Subtest: verified downloads are reused without fetching unchanged bytes
 ok 16 - verified downloads are reused without fetching unchanged bytes
   ---
-  duration_ms: 6.806894
+  duration_ms: 6.539132
   type: 'test'
   ...
 # Subtest: corrupt existing cache is repaired only for affected file
 ok 17 - corrupt existing cache is repaired only for affected file
   ---
-  duration_ms: 3.871234
+  duration_ms: 3.275605
   type: 'test'
   ...
 # Subtest: bad origin bytes retry at most twice and never enter committed cache
 ok 18 - bad origin bytes retry at most twice and never enter committed cache
   ---
-  duration_ms: 2.287712
+  duration_ms: 2.159925
   type: 'test'
   ...
 # Subtest: legacy receipt is local-only, and corruption is detected after restart
 ok 19 - legacy receipt is local-only, and corruption is detected after restart
   ---
-  duration_ms: 3.86932
+  duration_ms: 3.635528
   type: 'test'
   ...
 # Subtest: new revision never overwrites retained old revision
 ok 20 - new revision never overwrites retained old revision
   ---
-  duration_ms: 4.978169
+  duration_ms: 3.505735
   type: 'test'
   ...
 # Subtest: ready current content bypasses a pending background download
 ok 21 - ready current content bypasses a pending background download
   ---
-  duration_ms: 3.651078
+  duration_ms: 2.266643
   type: 'test'
   ...
 # Subtest: storage quota failure cannot falsely mark file ready
 ok 22 - storage quota failure cannot falsely mark file ready
   ---
-  duration_ms: 3.018332
+  duration_ms: 2.362644
   type: 'test'
   ...
 # Subtest: atomic journal retains current bundle on failed update and survives restart
 ok 23 - atomic journal retains current bundle on failed update and survives restart
   ---
-  duration_ms: 0.982592
+  duration_ms: 1.010244
   type: 'test'
   ...
 # Subtest: volatile journal storage and empty bundles are refused
 ok 24 - volatile journal storage and empty bundles are refused
   ---
-  duration_ms: 0.957446
+  duration_ms: 0.903426
   type: 'test'
   ...
 # Subtest: legacy WebView SHA-256 fallback agrees with native implementation
 ok 25 - legacy WebView SHA-256 fallback agrees with native implementation
   ---
-  duration_ms: 63.681776
+  duration_ms: 62.574311
+  type: 'test'
+  ...
+# Subtest: left and right use their own waiting artwork during preparation and startup
+ok 26 - left and right use their own waiting artwork during preparation and startup
+  ---
+  duration_ms: 5.441849
+  type: 'test'
+  ...
+# Subtest: video preparation replaces a retained playlist image with its lane artwork
+ok 27 - video preparation replaces a retained playlist image with its lane artwork
+  ---
+  duration_ms: 2.518185
+  type: 'test'
+  ...
+# Subtest: pending video stays transparent with an explicit logo poster and no controls
+ok 28 - pending video stays transparent with an explicit logo poster and no controls
+  ---
+  duration_ms: 1.467661
+  type: 'test'
+  ...
+# Subtest: confirmed playback with current data reveals video before the progress poll
+ok 29 - confirmed playback with current data reveals video before the progress poll
+  ---
+  duration_ms: 1.181077
+  type: 'test'
+  ...
+# Subtest: play notification without current data cannot reveal the waiting surface
+ok 30 - play notification without current data cannot reveal the waiting surface
+  ---
+  duration_ms: 1.27074
+  type: 'test'
+  ...
+# Subtest: rejected autoplay remains hidden and retains bounded recovery
+ok 31 - rejected autoplay remains hidden and retains bounded recovery
+  ---
+  duration_ms: 3.345708
+  type: 'test'
+  ...
+# Subtest: stale playback callback cannot reveal a replaced video
+ok 32 - stale playback callback cannot reveal a replaced video
+  ---
+  duration_ms: 1.185463
   type: 'test'
   ...
 # Subtest: successful retry is not marked as a 15-second failure
-ok 26 - successful retry is not marked as a 15-second failure
+ok 33 - successful retry is not marked as a 15-second failure
   ---
-  duration_ms: 7.997042
+  duration_ms: 1.620206
   type: 'test'
   ...
 # Subtest: two lanes run and replace videos without more than two decoder allocations
-ok 27 - two lanes run and replace videos without more than two decoder allocations
+ok 34 - two lanes run and replace videos without more than two decoder allocations
   ---
-  duration_ms: 23.379203
+  duration_ms: 24.854691
   type: 'test'
   ...
 # Subtest: stalled first frame is detected, then bounded retry and quarantine
-ok 28 - stalled first frame is detected, then bounded retry and quarantine
+ok 35 - stalled first frame is detected, then bounded retry and quarantine
   ---
-  duration_ms: 3.068517
+  duration_ms: 3.40092
   type: 'test'
   ...
 # Subtest: duplicate callbacks from one attempt count as one failure
-ok 29 - duplicate callbacks from one attempt count as one failure
+ok 36 - duplicate callbacks from one attempt count as one failure
   ---
-  duration_ms: 1.490794
+  duration_ms: 3.547787
   type: 'test'
   ...
 # Subtest: actual completion resets historical failures
-ok 30 - actual completion resets historical failures
+ok 37 - actual completion resets historical failures
   ---
-  duration_ms: 2.109079
+  duration_ms: 1.603672
   type: 'test'
   ...
 # Subtest: notice / black mode pause removes decoders and does not count failures
-ok 31 - notice / black mode pause removes decoders and does not count failures
+ok 38 - notice / black mode pause removes decoders and does not count failures
   ---
-  duration_ms: 2.130259
+  duration_ms: 1.864107
   type: 'test'
   ...
 # Subtest: a late old callback cannot fail the new content
-ok 32 - a late old callback cannot fail the new content
+ok 39 - a late old callback cannot fail the new content
   ---
-  duration_ms: 1.269927
+  duration_ms: 1.044394
   type: 'test'
   ...
 # Subtest: metadata duration never skips an unstarted video silently
-ok 33 - metadata duration never skips an unstarted video silently
+ok 40 - metadata duration never skips an unstarted video silently
   ---
-  duration_ms: 1.091163
+  duration_ms: 0.872701
   type: 'test'
   ...
 # Subtest: HTTP success without acknowledgement preserves the outbox
-ok 34 - HTTP success without acknowledgement preserves the outbox
+ok 41 - HTTP success without acknowledgement preserves the outbox
   ---
-  duration_ms: 1.036562
+  duration_ms: 0.886441
   type: 'test'
   ...
 # Subtest: flush acknowledges only sent IDs and preserves concurrently queued records
-ok 35 - flush acknowledges only sent IDs and preserves concurrently queued records
+ok 42 - flush acknowledges only sent IDs and preserves concurrently queued records
   ---
-  duration_ms: 0.843277
+  duration_ms: 0.874373
   type: 'test'
   ...
 # Subtest: partial acknowledgements preserve failed entries
-ok 36 - partial acknowledgements preserve failed entries
+ok 43 - partial acknowledgements preserve failed entries
   ---
-  duration_ms: 0.695158
+  duration_ms: 0.870627
   type: 'test'
   ...
 # Subtest: network outage does not discard durable events
-ok 37 - network outage does not discard durable events
+ok 44 - network outage does not discard durable events
   ---
-  duration_ms: 1.662387
+  duration_ms: 0.766614
   type: 'test'
   ...
 # Subtest: storage failure is visible and does not erase in-memory events
-ok 38 - storage failure is visible and does not erase in-memory events
+ok 45 - storage failure is visible and does not erase in-memory events
   ---
-  duration_ms: 0.573598
+  duration_ms: 0.618535
   type: 'test'
   ...
 # Subtest: outbox is bounded and reports dropped records
-ok 39 - outbox is bounded and reports dropped records
+ok 46 - outbox is bounded and reports dropped records
   ---
-  duration_ms: 1.62308
+  duration_ms: 0.643812
   type: 'test'
   ...
 # Subtest: empty playlist cancels the former video
-ok 40 - empty playlist cancels the former video
+ok 47 - empty playlist cancels the former video
   ---
-  duration_ms: 1.407381
+  duration_ms: 1.008111
   type: 'test'
   ...
 # Subtest: 72-hour accelerated two-lane transition simulation keeps bounded resources
-ok 41 - 72-hour accelerated two-lane transition simulation keeps bounded resources
+ok 48 - 72-hour accelerated two-lane transition simulation keeps bounded resources
   ---
-  duration_ms: 41421.329263
+  duration_ms: 39097.460639
   type: 'test'
   ...
 # Subtest: progress that stops after playback begins triggers stall recovery
-ok 42 - progress that stops after playback begins triggers stall recovery
+ok 49 - progress that stops after playback begins triggers stall recovery
   ---
-  duration_ms: 3.353386
+  duration_ms: 2.737262
   type: 'test'
   ...
 # Subtest: one lane exclusion never prevents the same content in the other lane
-ok 43 - one lane exclusion never prevents the same content in the other lane
+ok 50 - one lane exclusion never prevents the same content in the other lane
   ---
-  duration_ms: 1.966316
+  duration_ms: 1.627509
   type: 'test'
   ...
 # Subtest: hung source resolution reaches a bounded recovery deadline
-ok 44 - hung source resolution reaches a bounded recovery deadline
+ok 51 - hung source resolution reaches a bounded recovery deadline
   ---
-  duration_ms: 0.851288
+  duration_ms: 0.860123
   type: 'test'
   ...
 # Subtest: removed image poster is discarded when playlist becomes empty
-ok 45 - removed image poster is discarded when playlist becomes empty
+ok 52 - removed image poster is discarded when playlist becomes empty
   ---
-  duration_ms: 0.914442
+  duration_ms: 0.873583
   type: 'test'
   ...
 # Subtest: short video ending before the polling interval can complete
-ok 46 - short video ending before the polling interval can complete
+ok 53 - short video ending before the polling interval can complete
   ---
-  duration_ms: 1.14366
+  duration_ms: 1.103453
   type: 'test'
   ...
 # Subtest: previous navigation branch fails the same redirected-response check
-ok 47 - previous navigation branch fails the same redirected-response check
+ok 54 - previous navigation branch fails the same redirected-response check
   ---
-  duration_ms: 3.979081
+  duration_ms: 3.753312
   type: 'test'
   ...
 # Subtest: redirected cached HTML is normalized for a manual navigation
-ok 48 - redirected cached HTML is normalized for a manual navigation
+ok 55 - redirected cached HTML is normalized for a manual navigation
   ---
-  duration_ms: 1.988809
+  duration_ms: 1.905509
   type: 'test'
   ...
 # Subtest: first install normalizes redirected document before activation
-ok 49 - first install normalizes redirected document before activation
+ok 56 - first install normalizes redirected document before activation
   ---
-  duration_ms: 1.201916
+  duration_ms: 1.214687
   type: 'test'
   ...
 # Subtest: HTML response drops stale transport compression and length
-ok 50 - HTML response drops stale transport compression and length
+ok 57 - HTML response drops stale transport compression and length
   ---
-  duration_ms: 0.918908
+  duration_ms: 0.927783
   type: 'test'
   ...
 # Subtest: cache access failure falls back to normalized network HTML
-ok 51 - cache access failure falls back to normalized network HTML
+ok 58 - cache access failure falls back to normalized network HTML
   ---
-  duration_ms: 1.182718
+  duration_ms: 1.16288
   type: 'test'
   ...
 # Subtest: missing cached HTML follows the hosting redirect safely
-ok 52 - missing cached HTML follows the hosting redirect safely
+ok 59 - missing cached HTML follows the hosting redirect safely
   ---
-  duration_ms: 1.001971
+  duration_ms: 1.065627
   type: 'test'
   ...
 # Subtest: offline with installed HTML continues using local document
-ok 53 - offline with installed HTML continues using local document
+ok 60 - offline with installed HTML continues using local document
   ---
-  duration_ms: 0.923986
+  duration_ms: 1.096572
   type: 'test'
   ...
 # Subtest: offline without readable cache returns a local recovery document
-ok 54 - offline without readable cache returns a local recovery document
+ok 61 - offline without readable cache returns a local recovery document
   ---
-  duration_ms: 1.651541
+  duration_ms: 2.236688
   type: 'test'
   ...
 # Subtest: failed network HTTP status is not promoted to normal Player HTML
-ok 55 - failed network HTTP status is not promoted to normal Player HTML
+ok 62 - failed network HTTP status is not promoted to normal Player HTML
   ---
-  duration_ms: 0.925448
+  duration_ms: 1.335806
   type: 'test'
   ...
 # Subtest: activation removes only old application caches and keeps media
-ok 56 - activation removes only old application caches and keeps media
+ok 63 - activation removes only old application caches and keeps media
   ---
-  duration_ms: 1.359139
+  duration_ms: 1.4331
   type: 'test'
   ...
 # Subtest: cache cleanup failure does not prevent new worker control
-ok 57 - cache cleanup failure does not prevent new worker control
+ok 64 - cache cleanup failure does not prevent new worker control
   ---
-  duration_ms: 0.709799
+  duration_ms: 0.694757
   type: 'test'
   ...
 # Subtest: API and version lookups remain outside document caching
-ok 58 - API and version lookups remain outside document caching
+ok 65 - API and version lookups remain outside document caching
   ---
-  duration_ms: 0.60266
+  duration_ms: 0.609041
   type: 'test'
   ...
 # Subtest: error, opaque, partial and non-HTML responses cannot become Player documents
-ok 59 - error, opaque, partial and non-HTML responses cannot become Player documents
+ok 66 - error, opaque, partial and non-HTML responses cannot become Player documents
   ---
-  duration_ms: 1.378308
+  duration_ms: 1.858159
   type: 'test'
   ...
 # Subtest: failed install cannot activate an incompletely cached application
-ok 60 - failed install cannot activate an incompletely cached application
+ok 67 - failed install cannot activate an incompletely cached application
   ---
-  duration_ms: 0.820423
+  duration_ms: 0.922625
   type: 'test'
   ...
 # Subtest: unexpected cross-origin network document returns recovery HTML
-ok 61 - unexpected cross-origin network document returns recovery HTML
+ok 68 - unexpected cross-origin network document returns recovery HTML
   ---
-  duration_ms: 0.810958
+  duration_ms: 0.783879
   type: 'test'
   ...
 # Subtest: asset cache write failure still returns the successful network response
-ok 62 - asset cache write failure still returns the successful network response
+ok 69 - asset cache write failure still returns the successful network response
   ---
-  duration_ms: 1.227124
+  duration_ms: 1.61578
   type: 'test'
   ...
-1..62
-# tests 62
+1..69
+# tests 69
 # suites 0
-# pass 62
+# pass 69
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 43598.753224
+# duration_ms 41203.456892

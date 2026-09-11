@@ -68,7 +68,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.9.1-navigation-hotfix'
+const PLAYER_BUILD = 'v1.9.3-logo-video-start'
 const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
 const META_KEY = 'lv-media-bundle-meta-v1-8-0'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`

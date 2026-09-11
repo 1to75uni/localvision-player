@@ -2,6 +2,55 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {setup}=require('./harness.cjs');
 const item=(id,type='video')=>({id,url:`blob:${id}`,fileName:`${id}.mp4`,type,duration:3});
+test('left and right use their own waiting artwork during preparation and startup',async()=>{
+  const h=setup({deferPlay:true});
+  for(const side of ['left','right']) {
+    const lane=h.lanes[side];lane.setPlaylist([item(side)]);
+    assert.equal(lane.o.zone.children[0].src,`./waiting-${side}.jpg?v=1.9.3`);
+  }
+  await h.tick(800);
+  for(const side of ['left','right']) {
+    const lane=h.lanes[side];
+    assert.equal(lane.element.poster,`./waiting-${side}.jpg?v=1.9.3`);
+    assert.equal(lane.o.zone.children[0].src,lane.element.poster);lane.stop();await h.tick(200);
+  }
+});
+test('video preparation replaces a retained playlist image with its lane artwork',async()=>{
+  const h=setup({deferPlay:true}),lane=h.lanes.left,photo=item('photo','image'),video=item('video');
+  lane.setPlaylist([photo]);await h.tick(100);assert.ok(lane.poster);
+  lane.setPlaylist([photo,video],1);
+  assert.equal(lane.o.zone.children[0].src,'./waiting-left.jpg?v=1.9.3');lane.stop();
+});
+test('pending video stays transparent with an explicit logo poster and no controls',async()=>{
+  const h=setup({deferPlay:true});h.lanes.left.setPlaylist([item('pending')]);await h.tick(200);
+  const video=h.lanes.left.element;
+  assert.equal(video.tag,'video');assert.equal(video.style.opacity,'0');assert.equal(video.controls,false);
+  assert.equal(video.poster,'./waiting-left.jpg?v=1.9.3');
+  const waiting=h.lanes.left.o.zone.children[0];
+  assert.equal(waiting.tag,'img');assert.equal(waiting.src,'./waiting-left.jpg?v=1.9.3');
+  assert.equal(h.lanes.left.o.zone.children[1],video);
+  h.lanes.left.stop();assert.equal(h.live,0);
+});
+test('confirmed playback with current data reveals video before the progress poll',async()=>{
+  const h=setup();h.lanes.left.setPlaylist([item('ready')]);await h.tick(200);
+  assert.equal(h.lanes.left.element.style.opacity,'1');assert.equal(h.lanes.left.firstFrameAt,0);
+  h.lanes.left.stop();
+});
+test('play notification without current data cannot reveal the waiting surface',async()=>{
+  const h=setup({readyState:1,freeze:true});h.lanes.left.setPlaylist([item('waiting')]);await h.tick(200);
+  assert.equal(h.lanes.left.element.style.opacity,'0');h.lanes.left.stop();
+});
+test('rejected autoplay remains hidden and retains bounded recovery',async()=>{
+  const h=setup({rejectAlways:true});h.lanes.left.setPlaylist([item('denied')]);await h.tick(200);
+  assert.equal(h.lanes.left.element.style.opacity,'0');await h.tick(45000);
+  assert.equal(h.lanes.left.phase,'fallback');assert.equal(h.live,0);
+});
+test('stale playback callback cannot reveal a replaced video',async()=>{
+  const h=setup({deferPlay:true});const lane=h.lanes.left;lane.setPlaylist([item('old')]);await h.tick(200);
+  const old=lane.element,started=old.onplaying;lane.setPlaylist([item('new')]);await h.tick(200);
+  old.paused=false;old.readyState=4;started();
+  assert.equal(old.style.opacity,'0');assert.equal(lane.element.style.opacity,'0');lane.stop();
+});
 test('successful retry is not marked as a 15-second failure',async()=>{
   const h=setup({rejectFirst:true,duration:30});h.lanes.left.setPlaylist([item('a')]);await h.tick(17000);
   assert.equal(h.lanes.left.phase,'playing');assert.equal(h.events.filter(e=>e[2]?.failCount).length,0);
