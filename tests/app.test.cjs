@@ -25,19 +25,23 @@ function integrated(options={}) {
   ctx.fetch=async(url,init={})=>{
     const u=new URL(url,'https://player.test');calls.push({path:u.pathname,init});
     if(h.offline)throw new Error('offline');
+    if(h.quota && u.pathname.startsWith('/api/'))return new Response(JSON.stringify({ok:false,errorCode:'LV-D1-QUOTA',error:'D1 exceeded daily row write limit',retryAfterSec:900}),{status:503});
     if(u.hostname==='cdn.test')return new Response('media',{headers:{'content-type':'video/mp4','content-length':'5'}});
     let body={ok:true};
     if(u.pathname==='/api/player-state')body=h.manifest;
     if(u.pathname==='/api/player-command')body={ok:true,device:{id:'tv_qa',store:'qa'},command:h.command};
     if(u.pathname==='/api/notice-active')body={ok:true,notice:h.notice};
     if(u.pathname==='/api/black-mode')body={ok:true,mode:{active:h.blackMode,reason:h.blackMode?'test':'off'}};
+    if(u.pathname==='/api/player-control')body={ok:true,command:{ok:true,device:{id:'tv_qa',store:'qa'},command:h.command},notice:{ok:true,notice:h.notice},black:{ok:true,mode:{active:h.blackMode,reason:h.blackMode?'test':'off'}}};
     if(u.pathname==='/api/heartbeat')body={ok:true,healthAccepted:true};
     if(u.pathname==='/api/player-errors')body=h.logFailure?{ok:true,degraded:true,saved:0}:{ok:true,acknowledged:JSON.parse(init.body).errors.map(e=>e.id)};
     return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
   };
   ctx.scheduler={yield:()=>new Promise(setImmediate)};ctx.crypto=require('node:crypto').webcrypto;ctx.TextEncoder=TextEncoder;ctx.Blob=Blob;ctx.Response=Response;
-  for(const file of ['integrity.js','playlist-store.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../'+file),'utf8'),ctx);
-  const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
+  for(const file of ['integrity.js','playlist-store.js','free-budget.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../'+file),'utf8'),ctx);
+  let app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
+  // Accelerate legacy playback regressions only; free100 profile is tested without overrides below.
+  if(!options.productionProfile)app=app.replace('boot().catch',"Object.assign(CONFIG,{heartbeatMs:10000,commandPollMs:5000,noticePollMs:10000,blackModePollMs:10000,playerStatePollMs:10000});boot().catch");
   const run=code=>vm.runInContext(code,ctx);
   vm.runInContext(app,ctx,{filename:'app.js'});
   const advance=async ms=>{await new Promise(setImmediate);for(let n=0;n<ms;n+=100){await h.tick(Math.min(100,ms-n));await new Promise(resolve=>setTimeout(resolve,1));}};
@@ -52,7 +56,7 @@ test('full Player boot loads both playlists, caches media and sends truthful hea
 });
 test('command poll is active and ordinary refresh preserves media cache',async()=>{
   const h=integrated();await h.advance(6000);
-  assert.ok(h.calls.filter(c=>c.path==='/api/player-command').length>=2);
+  assert.ok(h.calls.filter(c=>c.path==='/api/player-control').length>=2);
   h.controller.command={command:'refresh',commandAt:'2026-09-09T00:00:00Z'};await h.advance(6000);
   assert.equal(h.controller.reloads,1);
   assert.ok([...h.cacheSets.values()].some(m=>m.has('https://cdn.test/left.mp4')));
@@ -68,7 +72,7 @@ test('log storage rejection retains logs while playback continues',async()=>{
   const h=integrated();h.controller.logFailure=true;await h.advance(6000);
   await h.run("reportPlayerError('TEST-FAULT','diagnostic',{side:'right'},'error',0)");await h.advance(3000);
   assert.ok(h.run('outbox.items.length')>0);assert.equal(h.run('lanes.left.phase'),'playing');
-  h.controller.logFailure=false;await h.run('outbox.flush()');assert.equal(h.run('outbox.items.length'),0);
+  h.controller.logFailure=false;await h.advance(12000);await h.run('outbox.flush()');assert.equal(h.run('outbox.items.length'),0);
 });
 test('offline state sync keeps the last valid media and playlist',async()=>{
   const h=integrated();await h.advance(6000);h.controller.offline=true;await h.advance(30000);
@@ -118,4 +122,26 @@ test('journal quota refusal leaves both live lanes and last saved bundle untouch
  h.run("bundleJournal.storage={getItem:k=>localStorage.getItem(k),setItem:()=>{throw new Error('quota injected')}}");
  h.controller.manifest.playlists.left=[{...h.controller.manifest.playlists.left[0],id:'not-applied',url:'https://cdn.test/not-applied.mp4'}];await h.run("syncConfig('quota')");
  assert.equal(h.run('state.leftItems[0].id'),'left');assert.equal(h.run('bundleJournal.read().active.id'),before);assert.equal(h.run('delivery.phase'),'blocked');
+});
+
+test('quota circuit persists, coalesces API retries, and leaves both cached lanes running',async()=>{
+ const h=integrated();await h.advance(6000);h.controller.quota=true;const before=h.calls.length;
+ await assert.rejects(h.run("fetchJson('https://cms.test/api/player-status',{attempts:3})"),e=>e.code==='LV-D1-QUOTA');
+ assert.equal(h.calls.length-before,1);assert.ok(h.run('cmsRetryAt')>h.run('Date.now()')+899000);
+ for(let i=0;i<20;i++)await assert.rejects(h.run("fetchJson('https://cms.test/api/heartbeat')"),e=>e.code==='LV-D1-QUOTA');
+ assert.equal(h.calls.length-before,1);await h.advance(30000);assert.equal(h.calls.length-before,1);
+ assert.ok(h.run('playbackMetrics.completed')>2);assert.equal(h.run('state.leftItems.length'),1);assert.equal(h.run('state.rightItems.length'),1);assert.ok(h.storage.has('lv-cms-retry-at'));
+});
+test('rapid health triggers cannot produce a request every ten seconds',async()=>{
+ const h=integrated();await h.advance(6000);const before=h.calls.filter(c=>c.path==='/api/player-status').length;
+ for(let i=0;i<20;i++){h.run('requestHealthReport()');await h.advance(1000);}
+ assert.equal(h.calls.filter(c=>c.path==='/api/player-status').length,before);
+});
+
+test('production free100 profile clamps old URLs and combines control requests',async()=>{
+ const h=integrated({productionProfile:true});await h.advance(6000);
+ assert.equal(h.run('CONFIG.heartbeatMs'),600000);assert.equal(h.run('CONFIG.playerStatePollMs'),900000);assert.equal(h.run('CONFIG.commandPollMs'),300000);
+ assert.equal(h.calls.filter(x=>x.path==='/api/player-control').length,1);
+ assert.equal(h.calls.filter(x=>['/api/player-command','/api/notice-active','/api/black-mode'].includes(x.path)).length,0);
+ assert.equal(h.run('lanes.left.phase'),'playing');assert.equal(h.run('lanes.right.phase'),'playing');
 });

@@ -361,5 +361,5 @@ video.media::-webkit-media-controls-start-playback-button { display: none !impor
 
 /* Preserve the supplied artwork without cropping in either lane. */
 .media.lv-video-waiting { object-fit: contain; background: #fff; }
-.left-zone .empty.loading { background: #fff url("./waiting-left.jpg?v=1.9.3") center / contain no-repeat; }
-.right-zone .empty.loading { background: #fff url("./waiting-right.jpg?v=1.9.3") center / contain no-repeat; }
+.left-zone .empty.loading { background: #fff url("./waiting-left.jpg?v=1.9.5") center / contain no-repeat; }
+.right-zone .empty.loading { background: #fff url("./waiting-right.jpg?v=1.9.5") center / contain no-repeat; }

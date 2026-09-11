@@ -6,12 +6,12 @@ test('left and right use their own waiting artwork during preparation and startu
   const h=setup({deferPlay:true});
   for(const side of ['left','right']) {
     const lane=h.lanes[side];lane.setPlaylist([item(side)]);
-    assert.equal(lane.o.zone.children[0].src,`./waiting-${side}.jpg?v=1.9.3`);
+    assert.equal(lane.o.zone.children[0].src,`./waiting-${side}.jpg?v=1.9.5`);
   }
   await h.tick(800);
   for(const side of ['left','right']) {
     const lane=h.lanes[side];
-    assert.equal(lane.element.poster,`./waiting-${side}.jpg?v=1.9.3`);
+    assert.equal(lane.element.poster,`./waiting-${side}.jpg?v=1.9.5`);
     assert.equal(lane.o.zone.children[0].src,lane.element.poster);lane.stop();await h.tick(200);
   }
 });
@@ -19,15 +19,15 @@ test('video preparation replaces a retained playlist image with its lane artwork
   const h=setup({deferPlay:true}),lane=h.lanes.left,photo=item('photo','image'),video=item('video');
   lane.setPlaylist([photo]);await h.tick(100);assert.ok(lane.poster);
   lane.setPlaylist([photo,video],1);
-  assert.equal(lane.o.zone.children[0].src,'./waiting-left.jpg?v=1.9.3');lane.stop();
+  assert.equal(lane.o.zone.children[0].src,'./waiting-left.jpg?v=1.9.5');lane.stop();
 });
 test('pending video stays transparent with an explicit logo poster and no controls',async()=>{
   const h=setup({deferPlay:true});h.lanes.left.setPlaylist([item('pending')]);await h.tick(200);
   const video=h.lanes.left.element;
   assert.equal(video.tag,'video');assert.equal(video.style.opacity,'0');assert.equal(video.controls,false);
-  assert.equal(video.poster,'./waiting-left.jpg?v=1.9.3');
+  assert.equal(video.poster,'./waiting-left.jpg?v=1.9.5');
   const waiting=h.lanes.left.o.zone.children[0];
-  assert.equal(waiting.tag,'img');assert.equal(waiting.src,'./waiting-left.jpg?v=1.9.3');
+  assert.equal(waiting.tag,'img');assert.equal(waiting.src,'./waiting-left.jpg?v=1.9.5');
   assert.equal(h.lanes.left.o.zone.children[1],video);
   h.lanes.left.stop();assert.equal(h.live,0);
 });
@@ -141,4 +141,10 @@ test('removed image poster is discarded when playlist becomes empty',async()=>{
 });
 test('short video ending before the polling interval can complete',async()=>{
   const h=setup({duration:0.5});h.lanes.left.setPlaylist([item('short')]);await h.tick(1200);assert.ok(h.events.some(e=>e[0]==='LV-PLAY-COMPLETE'));assert.equal(h.events.filter(e=>e[3]==='error').length,0);
+});
+
+test('manual flush and new errors cannot bypass server retry-after',async()=>{
+ const h=setup();let calls=0;const box=new h.runtime.Outbox({storage:h.localStorage,key:'guard',send:async()=>{calls++;throw Object.assign(new Error('quota'),{retryAfterMs:900000})}});
+ box.enqueue({id:'a'});await box.flush();for(let i=0;i<100;i++){box.enqueue({id:'x'+i});await box.flush();}
+ assert.equal(calls,1);await h.tick(899000);assert.equal(calls,1);await h.tick(1001);assert.equal(calls,2);assert.equal(box.items.length,101);
 });

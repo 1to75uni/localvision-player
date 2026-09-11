@@ -1,12 +1,11 @@
 {
-  "build": "v1.9.3-logo-video-start",
-  "version": "1.9.3",
+  "build": "v1.9.5-free-100",
+  "version": "1.9.5",
   "updatedAt": "2026-09-11",
   "highlights": [
-    "Separate supplied waiting artwork for left and right lanes",
-    "Artwork remains visible until video playback starts",
-    "Preserve aspect ratio without cropping",
-    "Retain verified playlists and navigation repair"
+    "Free-100 persistent API attempt budgets",
+    "Combined command/notice/black-mode read endpoint",
+    "Legacy URL polling floors and offline verified playback"
   ],
-  "notes": "Web Player update. Physical TV appearance requires confirmation."
+  "notes": "Pair with CMS 2.1.2. Free operation requires account-wide read/request/storage budgets to remain within limits. Physical 100-TV deployment not tested."
 }

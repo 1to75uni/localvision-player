@@ -20,8 +20,8 @@ const CONFIG = {
   heartbeatMs: Number(params.get('heartbeat') || 300000),
   commandPollMs: Number(params.get('commandPoll') || params.get('commandPollMs') || 300000),
   appConfigPollMs: Number(params.get('appConfigPoll') || params.get('configPoll') || 1800000),
-  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 60000),
-  blackModePollMs: Number(params.get('blackModePoll') || params.get('blackModePollMs') || 60000),
+  noticePollMs: Number(params.get('noticePoll') || params.get('noticePollMs') || 300000),
+  blackModePollMs: Number(params.get('blackModePoll') || params.get('blackModePollMs') || 300000),
   playerStatePollMs: Number(params.get('playerStatePoll') || params.get('statePoll') || params.get('contentCheck') || 900000),
   scheduleCheckMs: Number(params.get('scheduleCheck') || params.get('scheduleCheckMs') || 30000),
   versionPollMs: Number(params.get('versionPoll') || 600000),
@@ -46,6 +46,11 @@ const CONFIG = {
   appVersion: params.get('appVersion') || '',
 }
 
+// Free-100 profile: normalize even legacy URL intervals. Explicit zero retains disable behavior.
+for(const [key,min] of Object.entries({heartbeatMs:600000,commandPollMs:300000,noticePollMs:300000,blackModePollMs:300000,playerStatePollMs:900000,appConfigPollMs:1800000})) {
+ const value=Number(CONFIG[key]);CONFIG[key]=value===0?0:Math.max(min,Number.isFinite(value)?value:min);
+}
+
 
 function kstString(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value)
@@ -68,7 +73,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.9.3-logo-video-start'
+const PLAYER_BUILD = 'v1.9.5-free-100'
 const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
 const META_KEY = 'lv-media-bundle-meta-v1-8-0'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
@@ -178,6 +183,9 @@ const BOOT_SEQUENCE = Math.max(Date.now(),Number(STORAGE.getItem('lv-boot-sequen
 try { STORAGE.setItem('lv-boot-sequence', String(BOOT_SEQUENCE)) } catch (_) {}
 let healthSequence = 0, healthTimer = null, healthBusy = false
 let lastHealthSentAt = 0
+let cmsRetryAt = Number(readJsonStorage('lv-cms-retry-at',0)) || 0
+const requestBudget=new LVFreeBudget.Budget(STORAGE,`lv-free100-budget-${CONFIG.apiBase}-${CONFIG.store}`)
+let controlPending=null,controlCached=null,controlCachedAt=0
 const exclusiveTasks = new Set()
 const cacheDownloads = new Map()
 let cacheWriteChain = Promise.resolve()
@@ -185,13 +193,9 @@ let cacheKeepUrls = new Set()
 const playbackMetrics = {started:0,completed:0,interrupted:0,failed:0,skipped:0,items:{}}
 const outbox = new LVRuntime.Outbox({
   storage: STORAGE, key: `lv-outbox-v181-${CONFIG.store}-${CONFIG.deviceId}`,
-  send: async (items) => LVRuntime.timedFetch(`${CONFIG.apiBase}/api/player-errors`, {
-    method:'POST',cache:'no-store',headers:{'content-type':'application/json'},
+  send: async (items) => fetchJson(`${CONFIG.apiBase}/api/player-errors`, {
+    method:'POST',attempts:1,headers:{'content-type':'application/json'},
     body:JSON.stringify({store:CONFIG.store,deviceId:CONFIG.deviceId,errors:items})
-  }, 15000, async response => {
-    const body = await response.json()
-    if (!response.ok) throw new Error(body.error || `로그 서버 HTTP ${response.status}`)
-    return body
   })
 })
 // Import unsent v1.8.0 records without deleting them until durable new storage exists.
@@ -304,13 +308,14 @@ function healthPayload() {
 function readJsonStorage(key,fallback) {try{return JSON.parse(STORAGE.getItem(key) || 'null') || fallback}catch(_){return fallback}}
 function requestHealthReport() {
   if (healthTimer || !CONFIG.apiBase) return
-  healthTimer = setTimeout(() => {healthTimer=null;sendHealthReport().catch(()=>{})},Math.max(1000,10000-(Date.now()-lastHealthSentAt)))
+  healthTimer = setTimeout(() => {healthTimer=null;sendHealthReport().catch(()=>{})},Math.max(1000,900000-(Date.now()-lastHealthSentAt),cmsRetryAt-Date.now()))
 }
 async function sendHealthReport() {
   if (healthBusy || !CONFIG.apiBase || !CONFIG.store) return
   healthBusy=true
+  lastHealthSentAt=Date.now() // Failed attempts must also obey the reporting interval.
   try {
-    await LVRuntime.timedFetch(`${CONFIG.apiBase}/api/player-status`,{method:'POST',cache:'no-store',headers:{'content-type':'application/json'},body:JSON.stringify(healthPayload())},15000,async r=>{if(!r.ok) throw new Error(`상태 서버 HTTP ${r.status}`);return r.json()})
+    await fetchJson(`${CONFIG.apiBase}/api/player-status`,{method:'POST',attempts:1,headers:{'content-type':'application/json'},body:JSON.stringify(healthPayload())})
     lastHealthSentAt=Date.now()
   } catch (_) { /* The next heartbeat retries current state; playback never waits. */ }
   finally {healthBusy=false}
@@ -360,7 +365,7 @@ function enqueuePlayerError(payload = {}) { return outbox.enqueue(payload) }
 function flushQueuedPlayerErrors() { outbox.flush().catch(()=>{}); return true }
 
 async function reportPlayerError(errorCode, message, extra = {}, level = 'error', minReportMs = 60000) {
-  if (!CONFIG.apiBase) return
+  if (!CONFIG.apiBase || errorCode==='LV-PLAYLIST-CHECK') return
   const key = `${errorCode}:${extra.side || ''}:${extra.itemId || extra.fileName || ''}:${extra.attemptId || ''}:${message}`
   if (minReportMs > 0 && !shouldReportError(key,minReportMs)) return
   const timeUtc=nowUtcIso()
@@ -482,22 +487,30 @@ async function registerServiceWorker() {
 }
 
 async function fetchJson(url, options = {}) {
+  if (Date.now() < cmsRetryAt) {const e=createPlayerError('LV-D1-QUOTA','CMS 저장 한도 복구 대기');e.retryAfterMs=cmsRetryAt-Date.now();throw e}
+
   const attempts=LVRuntime.clamp(options.attempts || 3,1,3,3)
   const clean={...options}; delete clean.attempts
   let lastError
   for(let attempt=0;attempt<attempts;attempt++) {
     if(attempt) await sleep(attempt*1000)
     try {
+      requestBudget.take(url)
       return await LVRuntime.timedFetch(url,{cache:'no-store',...clean},15000,async response=>{
         const text=await response.text()
         let data;try{data=JSON.parse(text)}catch(_){throw createPlayerError('LV-API-INVALID','CMS 응답 형식 오류')}
-        if(!response.ok || data.ok === false) {
+        if(!response.ok || data.ok === false || data.degraded) {
+          if(data.errorCode==='LV-D1-QUOTA' || /D1.*(?:exceeded|limit)|daily row (?:write|read) limit/i.test(String(data.error || data.healthError || ''))) {
+            cmsRetryAt=Date.now()+900000+Math.floor(Math.random()*60000);
+            try{STORAGE.setItem('lv-cms-retry-at',JSON.stringify(cmsRetryAt))}catch(_){}
+            const e=createPlayerError('LV-D1-QUOTA','CMS 일일 저장 한도 복구 대기');e.retryAfterMs=cmsRetryAt-Date.now();throw e;
+          }
           const err=createPlayerError(data.errorCode || 'LV-API-DOWN',data.error || `HTTP ${response.status}`)
           err.status=response.status;err.url=url;err.endpoint=new URL(url).pathname;throw err
         }
         return data
       })
-    } catch(error) {lastError=error;error.url=url;try{error.endpoint=new URL(url).pathname}catch(_){};if(error.status>=400 && error.status<500 && error.status!==429) break}
+    } catch(error) {if(['LV-D1-QUOTA','LV-REQUEST-BUDGET'].includes(error.code)) throw error;lastError=error;error.url=url;try{error.endpoint=new URL(url).pathname}catch(_){};if(error.status>=400 && error.status<500 && error.status!==429) break}
   }
   throw lastError
 }
@@ -570,7 +583,15 @@ async function fetchPlayerState(reason = 'poll') {
 async function fetchLiteEndpoint(path, reason = 'poll') {
   if (!CONFIG.apiBase || !CONFIG.store) throw new Error('apiBase/store missing')
   const qs = playerQuery({ reason })
-  return fetchJson(`${CONFIG.apiBase}${path}?${qs.toString()}`, { attempts: 2 })
+  const part={'/api/player-command':'command','/api/notice-active':'notice','/api/black-mode':'black'}[path]
+  if(!part)return fetchJson(`${CONFIG.apiBase}${path}?${qs.toString()}`,{attempts:1})
+  if(!controlCached || Date.now()-controlCachedAt>3000){
+    if(!controlPending)controlPending=fetchJson(`${CONFIG.apiBase}/api/player-control?${qs.toString()}`,{attempts:1}).then(data=>{controlCached=data;controlCachedAt=Date.now();return data}).finally(()=>{controlPending=null})
+    await controlPending
+  }
+  const data=controlCached?.[part]
+  if(!data || data.ok===false)throw createPlayerError(data?.errorCode || 'LV-CONTROL-FAILED',data?.error || 'CMS 2.1.2 제어 응답 확인 필요')
+  return data
 }
 
 function ensureBlackModeOverlay() {
@@ -1548,7 +1569,7 @@ async function sendHeartbeat() {
       catch(error){if(error.status!==404)throw error;data=await fetchJson(`${CONFIG.apiBase}/api/player-state`,{method:'POST',attempts:1,headers:{'content-type':'application/json'},body:JSON.stringify(body)})}
       state.lastHeartbeat=kstString();lastHealthSentAt=Date.now();flushQueuedPlayerErrors();updateDebug()
       if(!data.healthAccepted) requestHealthReport()
-    }catch(error){reportPlayerError('LV-HEARTBEAT-FAILED',error.message,{store:CONFIG.store},'warning')}
+    }catch(error){if(error.code!=='LV-D1-QUOTA') reportPlayerError('LV-HEARTBEAT-FAILED',error.message,{store:CONFIG.store},'warning')}
   })
 }
 

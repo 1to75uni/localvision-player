@@ -1,6 +1,6 @@
 /* HTML fetched through redirects must not be replayed as redirected navigation responses. */
-const APP_CACHE = 'lv-player-app-v1-9-3-logo-video-start';
-const APP_ASSETS = ['./index.html','./style.css?v=1.9.3','./integrity.js?v=1.9.3','./playlist-store.js?v=1.9.3','./runtime.js?v=1.9.3','./app.js?v=1.9.3','./loading.jpg','./waiting-left.jpg?v=1.9.3','./waiting-right.jpg?v=1.9.3'];
+const APP_CACHE = 'lv-player-app-v1-9-5-free-100';
+const APP_ASSETS = ['./index.html','./style.css?v=1.9.5','./integrity.js?v=1.9.5','./playlist-store.js?v=1.9.5','./runtime.js?v=1.9.5','./free-budget.js?v=1.9.5','./app.js?v=1.9.5','./loading.jpg','./waiting-left.jpg?v=1.9.5','./waiting-right.jpg?v=1.9.5'];
 function navigationDocument(response) {
   if(!response || !response.ok || response.status===206 || ['opaque','opaqueredirect','error'].includes(response.type)) throw new Error('Player document unavailable');
   const headers=new Headers(response.headers);

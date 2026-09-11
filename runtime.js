@@ -1,4 +1,4 @@
-/* LocalVision v1.9.3. Dependency-free runtime; also exercised by node:test. */
+/* LocalVision v1.9.5. Dependency-free runtime; also exercised by node:test. */
 (function (root) {
   'use strict';
   const clamp = (v, lo, hi, fallback) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : fallback;
@@ -23,7 +23,7 @@
       this.items = readJSON(storage, key, []);
       if (!Array.isArray(this.items)) this.items = [];
       this.items = this.items.filter(e => e && e.id && e.queuedAt > Date.now() - 7 * 86400000);
-      this.busy = false; this.attempt = 0; this.timer = null; this.lastSuccess = ''; this.lastError = ''; this.durable = true; this.dropped = 0;
+      this.retryAt = 0; this.busy = false; this.attempt = 0; this.timer = null; this.lastSuccess = ''; this.lastError = ''; this.durable = true; this.dropped = 0;
     }
     snapshot() { return {pending: this.items.length, durable: this.durable, dropped: this.dropped, lastSuccess: this.lastSuccess, lastError: this.lastError}; }
     persist() {
@@ -49,6 +49,7 @@
     }
     async flush() {
       if (this.busy || !this.items.length) return false;
+      if(Date.now()<this.retryAt){this.schedule(this.retryAt-Date.now());return false;}
       this.busy = true;
       if (this.timer) { clearTimeout(this.timer); this.timer = null; }
       const batch = this.items.slice(0, 40);
@@ -62,14 +63,16 @@
         }
         const sent = new Set(batch.map(e => e.id));
         const accepted = new Set(ids.filter(id => sent.has(id)));
+        this.dropped += (data.suppressed || []).filter(id=>sent.has(id)).length;
         if (!accepted.size) throw new Error('저장 확인된 로그가 없습니다.');
         this.items = this.items.filter(e => !accepted.has(e.id));
         this.lastSuccess = new Date().toISOString(); this.lastError = ''; this.attempt = 0;
       } catch (error) {
         this.lastError = String(error?.message || error).slice(0, 200); this.attempt++;
+        this.retryAt=Date.now()+Math.max(Number(error?.retryAfterMs)||0,Math.min(300000,3000*(2**Math.min(this.attempt,7))));
       } finally {
         this.busy = false; this.persist();
-        this.schedule(this.attempt ? Math.min(300000, 3000 * (2 ** Math.min(this.attempt, 7))) : 1500);
+        this.schedule(this.attempt ? Math.max(1500,this.retryAt-Date.now()) : 1500);
       }
       return this.items.length === 0;
     }
@@ -119,7 +122,7 @@
       this.src = '';
       if (this.releaseGate) {this.releaseGate(); this.releaseGate = null;}
     }
-    waitingSource() {return this.side === 'right' ? './waiting-right.jpg?v=1.9.3' : './waiting-left.jpg?v=1.9.3';}
+    waitingSource() {return this.side === 'right' ? './waiting-right.jpg?v=1.9.5' : './waiting-left.jpg?v=1.9.5';}
     placeholder(forceLogo = false) {
       if (this.poster && !forceLogo) {this.o.zone.replaceChildren(this.poster.element);return;}
       const img = document.createElement('img'); img.className = 'media contain lv-fallback lv-video-waiting';
