@@ -1,11 +1,12 @@
 {
-  "build": "v1.9.5-free-100",
-  "version": "1.9.5",
+  "build": "v1.9.6-api-recovery",
+  "version": "1.9.6",
   "updatedAt": "2026-09-11",
   "highlights": [
-    "Free-100 persistent API attempt budgets",
-    "Combined command/notice/black-mode read endpoint",
-    "Legacy URL polling floors and offline verified playback"
+    "Non-JSON API error classification with preserved HTTP evidence",
+    "Independent D1 and Workers quota cooldowns persisted across reloads",
+    "Cached playback or per-lane waiting artwork during CMS outages",
+    "Automatic reconnection within unchanged FREE 100 API budgets"
   ],
-  "notes": "Pair with CMS 2.1.2. Free operation requires account-wide read/request/storage budgets to remain within limits. Physical 100-TV deployment not tested."
+  "notes": "Pair with CMS 2.1.2. 92 automated Player regressions pass. Does not remove platform quotas. Physical TV/APK and account-wide free operation are not certified."
 }

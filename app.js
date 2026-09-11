@@ -73,7 +73,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const PLAYER_BUILD = 'v1.9.5-free-100'
+const PLAYER_BUILD = 'v1.9.6-api-recovery'
 const MEDIA_CACHE = 'lv-media-bundle-v1-8-0'
 const META_KEY = 'lv-media-bundle-meta-v1-8-0'
 const PLAYLIST_KEY = `lv-playlist-bundle-v1-8-0-${CONFIG.store || CONFIG.appId}`
@@ -183,7 +183,14 @@ const BOOT_SEQUENCE = Math.max(Date.now(),Number(STORAGE.getItem('lv-boot-sequen
 try { STORAGE.setItem('lv-boot-sequence', String(BOOT_SEQUENCE)) } catch (_) {}
 let healthSequence = 0, healthTimer = null, healthBusy = false
 let lastHealthSentAt = 0
-let cmsRetryAt = Number(readJsonStorage('lv-cms-retry-at',0)) || 0
+const CMS_PAUSE_KEY = `lv-cms-pause-${CONFIG.apiBase}-${CONFIG.store}`
+let cmsPause = readJsonStorage(CMS_PAUSE_KEY, null)
+if (!cmsPause || typeof cmsPause !== 'object' || Array.isArray(cmsPause)) cmsPause = null
+let cmsRetryAt = Number(cmsPause?.until || readJsonStorage('lv-cms-retry-at',0)) || 0
+if (!Number.isFinite(cmsRetryAt) || cmsRetryAt > Date.now()+86400000) cmsRetryAt = 0
+if (!cmsPause && cmsRetryAt > Date.now()) cmsPause = {code:'LV-D1-QUOTA',message:'CMS 일일 사용 한도 복구 대기',until:cmsRetryAt,failures:1}
+let cmsRecoveryTimer = null, cmsRecoveryAt = 0
+let lastCmsError = cmsPause
 const requestBudget=new LVFreeBudget.Budget(STORAGE,`lv-free100-budget-${CONFIG.apiBase}-${CONFIG.store}`)
 let controlPending=null,controlCached=null,controlCachedAt=0
 const exclusiveTasks = new Set()
@@ -479,6 +486,10 @@ function updateDebug() {
   els.dbgHeartbeat.textContent = state.lastHeartbeat || '-'
   els.dbgBundle.textContent = state.bundleStatus + (state.scheduleStatus ? ` · ${state.scheduleStatus}` : '')
   els.dbgCache.textContent = state.cacheStatus
+  const cmsDebug=document.getElementById('dbgCms')
+  if (cmsDebug) cmsDebug.textContent = lastCmsError
+    ? `${lastCmsError.code || 'LV-API-DOWN'} · HTTP ${lastCmsError.status || '응답 없음'} · ${lastCmsError.endpoint || ''} · ${lastCmsError.contentType || ''}${lastCmsError.rayId ? ' · Ray '+lastCmsError.rayId : ''}${cmsRecoveryAt || cmsRetryAt > Date.now() ? ' · 재확인 '+kstString(Math.max(cmsRecoveryAt,cmsRetryAt)) : ''}`
+    : '정상 응답 또는 첫 연결 대기'
 }
 
 async function registerServiceWorker() {
@@ -486,31 +497,85 @@ async function registerServiceWorker() {
   try { await navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}) } catch (error) {}
 }
 
-async function fetchJson(url, options = {}) {
-  if (Date.now() < cmsRetryAt) {const e=createPlayerError('LV-D1-QUOTA','CMS 저장 한도 복구 대기');e.retryAfterMs=cmsRetryAt-Date.now();throw e}
+function isCmsApi(url) {
+  try {return new URL(url).origin === new URL(CONFIG.apiBase).origin && new URL(url).pathname.startsWith('/api/')} catch (_) {return false}
+}
 
+function pausedCmsError(url) {
+  const error = createPlayerError(cmsPause?.code || 'LV-API-DOWN',cmsPause?.message || 'CMS 재연결 대기')
+  Object.assign(error,{status:cmsPause?.status || 0,contentType:cmsPause?.contentType || '',rayId:cmsPause?.rayId || '',
+    url,endpoint:new URL(url).pathname,blockedByEndpoint:cmsPause?.endpoint || '',noRequest:true,temporary:true,retryAfterMs:Math.max(0,cmsRetryAt-Date.now())})
+  return error
+}
+
+function pauseCms(error) {
+  const quota = ['LV-D1-QUOTA','LV-WORKER-QUOTA'].includes(error.code)
+  const existingQuota = ['LV-D1-QUOTA','LV-WORKER-QUOTA'].includes(cmsPause?.code)
+  if (cmsRetryAt > Date.now() && (!quota || existingQuota)) {
+    error.retryAfterMs = Math.max(error.retryAfterMs || 0,cmsRetryAt-Date.now()); return
+  }
+  const failures = Math.min(5,(Number(cmsPause?.failures) || 0)+1)
+  const base = quota ? 900000 : Math.min(900000,60000*(2**(failures-1)))
+  const delay = Math.min(86400000,Math.max(base,Number(error.retryAfterMs)||0)+Math.floor(Math.random()*(quota ? 60000 : 10000)))
+  cmsRetryAt = Date.now()+delay
+  error.retryAfterMs = delay
+  cmsPause = {code:error.code,message:error.message,status:error.status || 0,endpoint:error.endpoint || '',
+    contentType:error.contentType || '',rayId:error.rayId || '',until:cmsRetryAt,failures}
+  lastCmsError = cmsPause
+  try {
+    STORAGE.setItem(CMS_PAUSE_KEY,JSON.stringify(cmsPause))
+    // Preserve the old release's quota cooldown if an operator rolls back.
+    if (quota) STORAGE.setItem('lv-cms-retry-at',JSON.stringify(cmsRetryAt))
+  } catch (_) {}
+}
+
+function clearCmsRecovery() {
+  if (cmsRecoveryTimer) clearTimeout(cmsRecoveryTimer)
+  cmsRecoveryTimer = null; cmsRecoveryAt = 0
+  // A concurrent heartbeat may have discovered a newer outage. Do not erase it.
+  if (Date.now() >= cmsRetryAt) {
+    cmsRetryAt = 0; cmsPause = null; lastCmsError = null
+    try {STORAGE.removeItem(CMS_PAUSE_KEY);STORAGE.removeItem('lv-cms-retry-at')} catch (_) {}
+  }
+}
+
+function scheduleCmsRecovery(error) {
+  const delay = Math.min(86400000,Math.max(60000,Number(error.retryAfterMs)||0,cmsRetryAt-Date.now()))
+  const at = Date.now()+delay+1000
+  if (cmsRecoveryTimer && cmsRecoveryAt <= at) return
+  if (cmsRecoveryTimer) clearTimeout(cmsRecoveryTimer)
+  cmsRecoveryAt = at
+  cmsRecoveryTimer = setTimeout(() => {
+    cmsRecoveryTimer = null; cmsRecoveryAt = 0
+    if (state.isSyncing || state.scheduleApplying) {scheduleCmsRecovery(error);return}
+    syncConfig('cms-recovery').catch(()=>{})
+  },delay+1000)
+}
+
+function isCmsWait(error) {
+  return Boolean(error.temporary) || ['LV-D1-QUOTA','LV-WORKER-QUOTA','LV-REQUEST-BUDGET','LV-API-INVALID','LV-API-DOWN','LV-API-RATE-LIMIT'].includes(error.code)
+}
+
+async function fetchJson(url, options = {}) {
+  const cms = isCmsApi(url)
   const attempts=LVRuntime.clamp(options.attempts || 3,1,3,3)
   const clean={...options}; delete clean.attempts
   let lastError
   for(let attempt=0;attempt<attempts;attempt++) {
+    if (cms && Date.now() < cmsRetryAt) throw pausedCmsError(url)
     if(attempt) await sleep(attempt*1000)
     try {
+      if (cms && Date.now() < cmsRetryAt) throw pausedCmsError(url)
       requestBudget.take(url)
-      return await LVRuntime.timedFetch(url,{cache:'no-store',...clean},15000,async response=>{
-        const text=await response.text()
-        let data;try{data=JSON.parse(text)}catch(_){throw createPlayerError('LV-API-INVALID','CMS 응답 형식 오류')}
-        if(!response.ok || data.ok === false || data.degraded) {
-          if(data.errorCode==='LV-D1-QUOTA' || /D1.*(?:exceeded|limit)|daily row (?:write|read) limit/i.test(String(data.error || data.healthError || ''))) {
-            cmsRetryAt=Date.now()+900000+Math.floor(Math.random()*60000);
-            try{STORAGE.setItem('lv-cms-retry-at',JSON.stringify(cmsRetryAt))}catch(_){}
-            const e=createPlayerError('LV-D1-QUOTA','CMS 일일 저장 한도 복구 대기');e.retryAfterMs=cmsRetryAt-Date.now();throw e;
-          }
-          const err=createPlayerError(data.errorCode || 'LV-API-DOWN',data.error || `HTTP ${response.status}`)
-          err.status=response.status;err.url=url;err.endpoint=new URL(url).pathname;throw err
-        }
-        return data
-      })
-    } catch(error) {if(['LV-D1-QUOTA','LV-REQUEST-BUDGET'].includes(error.code)) throw error;lastError=error;error.url=url;try{error.endpoint=new URL(url).pathname}catch(_){};if(error.status>=400 && error.status<500 && error.status!==429) break}
+      return await LVRuntime.timedFetch(url,{cache:'no-store',...clean},15000,response=>LVApiResponse.read(response,url))
+    } catch(error) {
+      error.url=url;error.endpoint=new URL(url).pathname
+      if (!error.code) {error.code='LV-API-DOWN';error.temporary=true}
+      if (error.code === 'LV-REQUEST-BUDGET' || error.noRequest) throw error
+      if (cms && error.temporary) {pauseCms(error);throw error}
+      lastError=error
+      if(error.status>=400 && error.status<500 && error.status!==429) break
+    }
   }
   throw lastError
 }
@@ -1406,6 +1471,9 @@ async function syncConfig(reason = 'scheduled') {
       const old=bundleJournal.read()?.active
       if(old && JSON.stringify(old.schedule)!==JSON.stringify(scheduleSnapshot()))bundleJournal.commit({...old,schedule:scheduleSnapshot()})
       state.bundleStatus = '변경 없음'
+      clearCmsRecovery()
+      markGoodConfig()
+      hideErrorScreen()
       setStatus('CMS 확인 완료: 변경 없음')
       updateDebug()
       return
@@ -1416,6 +1484,7 @@ async function syncConfig(reason = 'scheduled') {
     const selectedNow=selectScheduledGroup(state.playlistGroups,state.playlistSchedules,state.defaultPlaylistKey).group
     if(selectedNow && playlistSignature(normalizeItems(selectedNow.left))!==playlistSignature(nextLeft))throw createPlayerError('LV-SCHEDULE-CHANGED','파일 준비 중 시간대 변경: 다음 확인에서 다시 적용')
     commitPrepared(nextLeft,nextRight)
+    clearCmsRecovery()
     markGoodConfig()
     hideErrorScreen()
 
@@ -1438,16 +1507,29 @@ async function syncConfig(reason = 'scheduled') {
     restoreSchedule(oldSchedule)
     delivery.phase='blocked';delivery.error=error.message;requestHealthReport()
     console.warn(error)
+    const cmsWait=isCmsWait(error)
+    if (cmsWait) {
+      lastCmsError={code:error.code,message:error.message,status:error.status || 0,endpoint:error.endpoint || '',contentType:error.contentType || '',rayId:error.rayId || ''}
+      scheduleCmsRecovery(error)
+    }
+    const errorContext={reason,endpoint:error.endpoint || '',url:error.url || '',httpStatus:error.status || 0,
+      contentType:error.contentType || '',rayId:error.rayId || '',retryAt:cmsRecoveryAt || cmsRetryAt,
+      requestSkipped:Boolean(error.noRequest),blockedByEndpoint:error.blockedByEndpoint || ''}
     if (!state.leftItems.length && !state.rightItems.length) {
       const ok = loadSavedBundle()
       if (ok) {
+        hideErrorScreen()
         startPlayback('left')
         window.setTimeout(() => startPlayback('right'), 500)
         setStatus('오프라인: 저장된 재생목록 사용')
       } else {
         const code = error.code || 'LV-API-DOWN'
-        await reportPlayerError(code, error.message, { reason, endpoint: error.endpoint || '', url: error.url || '', httpStatus: error.status || '' }, 'error')
-        showErrorScreen({
+        await reportPlayerError(code, error.message, errorContext, 'error', cmsWait ? 900000 : 60000)
+        if (cmsWait) {
+          hideErrorScreen()
+          for (const side of ['left','right']) if (!lanes[side].current) lanes[side].placeholder(true)
+          setStatus('CMS 연결 대기 · 저장된 콘텐츠가 없어 대기 화면 표시')
+        } else showErrorScreen({
           title: code === 'LV-PLAYLIST-EMPTY' ? '콘텐츠가 없습니다.' : 'CMS 연결 또는 playlist 확인 실패',
           message: code === 'LV-PLAYLIST-EMPTY' ? 'CMS에서 콘텐츠를 업로드하거나 playlist를 확인해 주세요.' : error.message,
           errorCode: code,
@@ -1456,7 +1538,8 @@ async function syncConfig(reason = 'scheduled') {
       }
     } else {
       const code = error.code || 'LV-API-DOWN'
-      await reportPlayerError(code, error.message, { reason, mode: 'keep-current-playlist', endpoint: error.endpoint || '', url: error.url || '', httpStatus: error.status || '' }, 'warning')
+      await reportPlayerError(code, error.message, { ...errorContext, mode: 'keep-current-playlist' }, 'warning', cmsWait ? 900000 : 60000)
+      if (cmsWait) hideErrorScreen()
       setStatus(`${code}: CMS 확인 실패, 기존 재생 유지`)
     }
     updateDebug()

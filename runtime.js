@@ -1,4 +1,4 @@
-/* LocalVision v1.9.5. Dependency-free runtime; also exercised by node:test. */
+/* LocalVision v1.9.6. Dependency-free runtime; also exercised by node:test. */
 (function (root) {
   'use strict';
   const clamp = (v, lo, hi, fallback) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : fallback;
@@ -122,7 +122,7 @@
       this.src = '';
       if (this.releaseGate) {this.releaseGate(); this.releaseGate = null;}
     }
-    waitingSource() {return this.side === 'right' ? './waiting-right.jpg?v=1.9.5' : './waiting-left.jpg?v=1.9.5';}
+    waitingSource() {return this.side === 'right' ? './waiting-right.jpg?v=1.9.6' : './waiting-left.jpg?v=1.9.6';}
     placeholder(forceLogo = false) {
       if (this.poster && !forceLogo) {this.o.zone.replaceChildren(this.poster.element);return;}
       const img = document.createElement('img'); img.className = 'media contain lv-fallback lv-video-waiting';

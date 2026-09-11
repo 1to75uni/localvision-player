@@ -9,7 +9,7 @@ function integrated(options={}) {
     addEventListener(){} querySelectorAll(tag){return this.children.filter(e=>e.tag===tag || e.tag==='div').flatMap(e=>e.tag===tag?[e]:e.querySelectorAll?.(tag)||[]);}
     querySelector(tag){return this.children.find(e=>e.className===tag.replace('.','')) || null;}
   }
-  const initial=['leftZone','rightZone','statusPill','debugPanel','reloadBtn','syncBtn','clearCacheBtn','dbgStore','dbgDevice','dbgApi','dbgLeft','dbgRight','dbgSync','dbgHeartbeat','dbgBundle','dbgCache','dbgStatus'];
+  const initial=['leftZone','rightZone','statusPill','debugPanel','reloadBtn','syncBtn','clearCacheBtn','dbgStore','dbgDevice','dbgApi','dbgLeft','dbgRight','dbgSync','dbgHeartbeat','dbgBundle','dbgCache','dbgStatus','dbgCms'];
   initial.forEach(id=>{const n=new Node('div');n.id=id;nodes.set(id,n);});
   ctx.document={visibilityState:'visible',getElementById:id=>nodes.get(id)||null,createElement:tag=>new Node(tag),head:new Node('head'),body:new Node('body'),addEventListener:(n,fn)=>listeners[n]=fn};
   if(options.storage)for(const [k,v] of options.storage)h.storage.set(k,v);
@@ -21,10 +21,11 @@ function integrated(options={}) {
   ctx.caches={async open(name){if(!cacheSets.has(name))cacheSets.set(name,new Map());const set=cacheSets.get(name);return {async match(url){return set.get(url.url || url)?.clone()},async put(url,response){set.set(url.url || url,response.clone())},async delete(url){return set.delete(url.url || url)},async keys(){return [...set.keys()].map(url=>({url}))}}},async keys(){return [...cacheSets.keys()]},async delete(name){return cacheSets.delete(name)}};
   const item=(side,id=side)=>({id,side,type:'video',url:`https://cdn.test/${id}.mp4`,fileName:`${id}.mp4`,status:'사용중',title:id,duration:4});
   h.manifest={ok:true,devices:[{id:'tv_qa',store:'qa'}],playlists:{left:[item('left')],right:[item('right')]}};
-  h.notice=null;h.blackMode=false;h.command=null;h.offline=Boolean(options.offline);h.logFailure=false;
+  h.notice=null;h.blackMode=false;h.command=null;h.offline=Boolean(options.offline);h.logFailure=false;h.apiResponse=options.apiResponse;
   ctx.fetch=async(url,init={})=>{
     const u=new URL(url,'https://player.test');calls.push({path:u.pathname,init});
     if(h.offline)throw new Error('offline');
+    if(h.apiResponse && u.pathname.startsWith('/api/')) {const r=await h.apiResponse(u,init);if(r)return r;}
     if(h.quota && u.pathname.startsWith('/api/'))return new Response(JSON.stringify({ok:false,errorCode:'LV-D1-QUOTA',error:'D1 exceeded daily row write limit',retryAfterSec:900}),{status:503});
     if(u.hostname==='cdn.test')return new Response('media',{headers:{'content-type':'video/mp4','content-length':'5'}});
     let body={ok:true};
@@ -38,7 +39,7 @@ function integrated(options={}) {
     return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
   };
   ctx.scheduler={yield:()=>new Promise(setImmediate)};ctx.crypto=require('node:crypto').webcrypto;ctx.TextEncoder=TextEncoder;ctx.Blob=Blob;ctx.Response=Response;
-  for(const file of ['integrity.js','playlist-store.js','free-budget.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../'+file),'utf8'),ctx);
+  for(const file of ['integrity.js','playlist-store.js','free-budget.js','api-response.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../'+file),'utf8'),ctx);
   let app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
   // Accelerate legacy playback regressions only; free100 profile is tested without overrides below.
   if(!options.productionProfile)app=app.replace('boot().catch',"Object.assign(CONFIG,{heartbeatMs:10000,commandPollMs:5000,noticePollMs:10000,blackModePollMs:10000,playerStatePollMs:10000});boot().catch");
@@ -144,4 +145,84 @@ test('production free100 profile clamps old URLs and combines control requests',
  assert.equal(h.calls.filter(x=>x.path==='/api/player-control').length,1);
  assert.equal(h.calls.filter(x=>['/api/player-command','/api/notice-active','/api/black-mode'].includes(x.path)).length,0);
  assert.equal(h.run('lanes.left.phase'),'playing');assert.equal(h.run('lanes.right.phase'),'playing');
+});
+
+test('cold start with HTML quota shows both waiting images and a single shared cooldown',async()=>{
+ const h=integrated({productionProfile:true,apiResponse:()=>new Response("<h1>D1_ERROR: daily row write limit exceeded</h1>",{status:503,headers:{'content-type':'text/html','cf-ray':'qa-quota'}})});
+ await h.advance(3000);
+ assert.equal(h.run('state.leftItems.length+state.rightItems.length'),0);
+ for(const side of ['left','right'])assert.match(h.nodes.get(side+'Zone').children[0].src,new RegExp('waiting-'+side+'\\.jpg'));
+ assert.ok(!h.nodes.get('playerErrorOverlay') || h.nodes.get('playerErrorOverlay').hidden);
+ assert.match(h.nodes.get('dbgCms').textContent,/LV-D1-QUOTA.*HTTP 503/);
+ const before=h.calls.length;
+ for(let i=0;i<10;i++)await h.run("syncConfig('manual-during-quota')");
+ await h.advance(30000);assert.equal(h.calls.length,before);
+ assert.ok(h.run('outbox.items.some(e=>e.extra.httpStatus===503 && e.extra.contentType==="text/html")'));
+});
+
+test('cold start with non-JSON 503 reconnects automatically after cooldown without reload',async()=>{
+ const h=integrated({productionProfile:true,apiResponse:()=>new Response('<h1>Service unavailable</h1>',{status:503})});
+ await h.advance(2000);const until=h.run('cmsRetryAt'),before=h.calls.length;
+ assert.ok(until>h.run('Date.now()'));assert.ok(!h.nodes.get('playerErrorOverlay') || h.nodes.get('playerErrorOverlay').hidden);
+ h.controller.apiResponse=null;
+ await h.tick(until-h.run('Date.now()')-1);assert.equal(h.calls.length,before);
+ await h.advance(6000);
+ assert.equal(h.run('lanes.left.phase'),'playing');assert.equal(h.run('lanes.right.phase'),'playing');
+ assert.equal(h.run('cmsRecoveryTimer'),null);assert.equal(h.run('cmsRetryAt'),0);assert.equal(h.controller.reloads || 0,0);
+});
+
+test('Workers quota cooldown survives reload and offline cached playback is retained',async()=>{
+ const h=integrated({productionProfile:true});await h.advance(6000);
+ const id=h.run('bundleJournal.read().active.id');
+ h.controller.apiResponse=()=>new Response('<h1>Error 1027</h1><p>Worker exceeded request limit</p>',{status:429});
+ await h.run("syncConfig('worker-quota')");
+ assert.equal(h.run('lastCmsError.code'),'LV-WORKER-QUOTA');assert.equal(h.run('bundleJournal.read().active.id'),id);
+ const reboot=integrated({productionProfile:true,storage:h.storage,cacheSets:h.cacheSets,offline:true});await reboot.advance(6000);
+ assert.equal(reboot.calls.filter(c=>c.path.startsWith('/api/')).length,0);
+ assert.equal(reboot.run('lanes.left.phase'),'playing');assert.equal(reboot.run('lanes.right.phase'),'playing');
+ assert.equal(reboot.run('lastCmsError.code'),'LV-WORKER-QUOTA');
+});
+
+test('valid unchanged playlist clears an earlier overlay without resetting either lane',async()=>{
+ const h=integrated({productionProfile:true});await h.advance(6000);
+ h.run("showErrorScreen({errorCode:'LV-API-INVALID'})");const left=h.run('lanes.left.generation'),right=h.run('lanes.right.generation');
+ await h.run("syncConfig('recovered-unchanged')");
+ assert.equal(h.nodes.get('playerErrorOverlay').hidden,true);
+ assert.equal(h.run('lanes.left.generation'),left);assert.equal(h.run('lanes.right.generation'),right);
+});
+
+test('state budget exhaustion at first boot shows waiting art and does not reset the budget',async()=>{
+ const now=1700000000000,day=new Date(now).toISOString().slice(0,10);
+ const budget={day,counts:{'player-state':110}};
+ const h=integrated({productionProfile:true,storage:new Map([['lv-free100-budget-https://cms.test-qa',JSON.stringify(budget)]])});
+ await h.advance(3000);
+ assert.equal(h.calls.filter(c=>c.path==='/api/player-state').length,0);
+ assert.equal(h.run('lastCmsError.code'),'LV-REQUEST-BUDGET');
+ assert.equal(h.run('requestBudget.data.counts["player-state"]'),110);
+ assert.ok(!h.nodes.get('playerErrorOverlay') || h.nodes.get('playerErrorOverlay').hidden);
+ assert.match(h.nodes.get('leftZone').children[0].src,/waiting-left/);
+ await h.run("syncConfig('retry-budget')");assert.equal(h.calls.filter(c=>c.path==='/api/player-state').length,0);
+});
+
+test('missing playlist remains an actionable configuration error',async()=>{
+ const h=integrated({productionProfile:true,apiResponse:u=>u.pathname==='/api/player-state'?new Response(JSON.stringify({ok:true,playlists:{left:[],right:[]}})):null});
+ await h.advance(2000);
+ assert.ok(!h.nodes.get('playerErrorOverlay').hidden);assert.match(h.nodes.get('playerErrorOverlay').innerHTML,/LV-PLAYLIST-EMPTY/);
+});
+
+test('cold offline boot uses waiting art and later resumes on the recovery timer',async()=>{
+ const h=integrated({productionProfile:true,offline:true});await h.advance(2000);
+ assert.equal(h.run('lastCmsError.code'),'LV-API-DOWN');assert.equal(h.run('lastCmsError.status'),0);
+ assert.match(h.nodes.get('rightZone').children[0].src,/waiting-right/);
+ h.controller.offline=false;
+ await h.tick(h.run('cmsRetryAt-Date.now()'));await h.advance(6000);
+ assert.equal(h.run('lanes.left.phase'),'playing');assert.equal(h.run('lanes.right.phase'),'playing');
+});
+
+test('HTML 404 player-state still falls back to legacy player-config',async()=>{
+ const h=integrated({productionProfile:true,apiResponse:u=>u.pathname==='/api/player-state'?new Response('<h1>Not found</h1>',{status:404}):null});
+ h.controller.apiResponse=u=>u.pathname==='/api/player-state'?new Response('<h1>Not found</h1>',{status:404}):u.pathname==='/api/player-config'?new Response(JSON.stringify(h.controller.manifest)):null;
+ await h.advance(6000);
+ assert.equal(h.calls.filter(c=>c.path==='/api/player-config').length,1);
+ assert.equal(h.run('lanes.left.phase'),'playing');assert.equal(h.run('cmsRetryAt'),0);
 });

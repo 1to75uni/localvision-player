@@ -1,0 +1,16 @@
+{
+  "version": "1.9.6",
+  "pairWithCms": "2.1.2",
+  "playerTests": 92,
+  "failed": 0,
+  "unchangedAssets": [
+    "free-budget.js",
+    "waiting-left.jpg",
+    "waiting-right.jpg",
+    "loading.jpg"
+  ],
+  "allHtmlAssetsPresent": true,
+  "allJavaScriptSyntaxChecksPassed": true,
+  "physicalDeviceTested": false,
+  "cloudflareQuotaTested": false
+}

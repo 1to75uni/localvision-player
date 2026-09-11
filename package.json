@@ -1,6 +1,6 @@
 {
   "name": "localvision-player",
-  "version": "1.9.5",
+  "version": "1.9.6",
   "private": true,
   "description": "Independent playback recovery and durable playback diagnostics",
   "scripts": {

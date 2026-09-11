@@ -6,12 +6,12 @@ test('left and right use their own waiting artwork during preparation and startu
   const h=setup({deferPlay:true});
   for(const side of ['left','right']) {
     const lane=h.lanes[side];lane.setPlaylist([item(side)]);
-    assert.equal(lane.o.zone.children[0].src,`./waiting-${side}.jpg?v=1.9.5`);
+    assert.equal(lane.o.zone.children[0].src,`./waiting-${side}.jpg?v=1.9.6`);
   }
   await h.tick(800);
   for(const side of ['left','right']) {
     const lane=h.lanes[side];
-    assert.equal(lane.element.poster,`./waiting-${side}.jpg?v=1.9.5`);
+    assert.equal(lane.element.poster,`./waiting-${side}.jpg?v=1.9.6`);
     assert.equal(lane.o.zone.children[0].src,lane.element.poster);lane.stop();await h.tick(200);
   }
 });
@@ -19,15 +19,15 @@ test('video preparation replaces a retained playlist image with its lane artwork
   const h=setup({deferPlay:true}),lane=h.lanes.left,photo=item('photo','image'),video=item('video');
   lane.setPlaylist([photo]);await h.tick(100);assert.ok(lane.poster);
   lane.setPlaylist([photo,video],1);
-  assert.equal(lane.o.zone.children[0].src,'./waiting-left.jpg?v=1.9.5');lane.stop();
+  assert.equal(lane.o.zone.children[0].src,'./waiting-left.jpg?v=1.9.6');lane.stop();
 });
 test('pending video stays transparent with an explicit logo poster and no controls',async()=>{
   const h=setup({deferPlay:true});h.lanes.left.setPlaylist([item('pending')]);await h.tick(200);
   const video=h.lanes.left.element;
   assert.equal(video.tag,'video');assert.equal(video.style.opacity,'0');assert.equal(video.controls,false);
-  assert.equal(video.poster,'./waiting-left.jpg?v=1.9.5');
+  assert.equal(video.poster,'./waiting-left.jpg?v=1.9.6');
   const waiting=h.lanes.left.o.zone.children[0];
-  assert.equal(waiting.tag,'img');assert.equal(waiting.src,'./waiting-left.jpg?v=1.9.5');
+  assert.equal(waiting.tag,'img');assert.equal(waiting.src,'./waiting-left.jpg?v=1.9.6');
   assert.equal(h.lanes.left.o.zone.children[1],video);
   h.lanes.left.stop();assert.equal(h.live,0);
 });
