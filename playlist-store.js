@@ -62,9 +62,9 @@ class VerifiedFiles {
 class Journal {
  constructor(storage,key){this.storage=storage;this.key=key;}
  read(){try{const value=JSON.parse(this.storage.getItem(this.key)||'null');return value?.schema===1 && this.valid(value.active)?value:null;}catch(_){return null;}}
- valid(b){return b && Array.isArray(b.left) && Array.isArray(b.right);}
+ valid(b){return b && Array.isArray(b.left) && Array.isArray(b.right) && b.left.length+b.right.length>0;}
  commit(bundle){
-  if(!this.valid(bundle))throw error('LV-PLAYLIST-INVALID','잘못된 재생목록');
+  if(!this.valid(bundle))throw error('LV-PLAYLIST-INVALID','비어 있거나 잘못된 재생목록');
   if(this.storage.volatile)throw error('LV-STORAGE-WRITE','영구 저장소 사용 불가: 현재 송출 유지');
   const old=this.read();const value={schema:1,active:bundle,previous:old?.active?.id && old.active.id===bundle.id ? old.previous : old?.active || null};
   try{this.storage.setItem(this.key,JSON.stringify(value));if(this.storage.volatile || this.storage.getItem(this.key)!==JSON.stringify(value))throw new Error('저장 확인 실패');}

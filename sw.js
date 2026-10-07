@@ -1,6 +1,6 @@
 /* HTML fetched through redirects must not be replayed as redirected navigation responses. */
-const APP_CACHE = 'lv-player-app-v3-0-0';
-const APP_ASSETS = ['./index.html','./style.css?v=3.0.0','./integrity.js?v=3.0.0','./playlist-store.js?v=3.0.0','./runtime.js?v=3.0.0','./free-budget.js?v=3.0.0','./api-response.js?v=3.0.0','./app.js?v=3.0.0','./sync-runtime.js?v=3.0.0','./app-v3.js?v=3.0.0','./loading.jpg','./waiting-left.jpg?v=3.0.0','./waiting-right.jpg?v=3.0.0'];
+const APP_CACHE = 'lv-player-app-v1-9-6-api-recovery';
+const APP_ASSETS = ['./index.html','./style.css?v=1.9.6','./integrity.js?v=1.9.6','./playlist-store.js?v=1.9.6','./runtime.js?v=1.9.6','./free-budget.js?v=1.9.6','./api-response.js?v=1.9.6','./app.js?v=1.9.6','./loading.jpg','./waiting-left.jpg?v=1.9.6','./waiting-right.jpg?v=1.9.6'];
 function navigationDocument(response) {
   if(!response || !response.ok || response.status===206 || ['opaque','opaqueredirect','error'].includes(response.type)) throw new Error('Player document unavailable');
   const headers=new Headers(response.headers);
@@ -22,7 +22,7 @@ self.addEventListener('install',event=>{
 self.addEventListener('activate',event=>{
   event.waitUntil((async()=>{
     // Cleanup failure must not prevent the repaired worker from taking control.
-    try {const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).slice(0,-1).map(k=>caches.delete(k).catch(()=>false)));}catch(_){}
+    try {const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).map(k=>caches.delete(k).catch(()=>false)));}catch(_){}
     await self.clients.claim();
   })());
 });
@@ -46,18 +46,8 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(event.request.method!=='GET' || url.origin!==self.location.origin || url.pathname.includes('/api/') || url.pathname.endsWith('/version.json'))return;
   if(event.request.mode==='navigate') {event.respondWith(documentForNavigation(event.request));return;}
-  const exact=APP_ASSETS.some(asset=>new URL(asset,self.location.href).href===url.href);
-  const knownPath=APP_ASSETS.some(asset=>new URL(asset,self.location.href).pathname===url.pathname);
-  if(!knownPath)return;
+  if(!APP_ASSETS.some(asset=>new URL(asset,self.location.href).href===url.href))return;
   event.respondWith((async()=>{
-    // An old document may still be loading while the complete new worker takes control.
-    // Serve that document's exact old revision from the retained cache, never mix new JS with old HTML.
-    if(!exact){
-      for(const name of (await caches.keys()).filter(k=>k.startsWith('lv-player-app-') && k!==APP_CACHE).reverse()){
-        const hit=await (await caches.open(name)).match(event.request);if(hit)return hit;
-      }
-      return new Response('Previous release asset unavailable; reload to the complete current release',{status:503});
-    }
     let cache;try{cache=await caches.open(APP_CACHE);const hit=await cache.match(event.request);if(hit)return hit;}catch(_){}
     const response=await fetch(event.request);
     if(response.ok && cache){try{await cache.put(event.request,response.clone());}catch(_){}}

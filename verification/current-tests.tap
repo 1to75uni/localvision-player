@@ -1,114 +1,1056 @@
-npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
-
-> localvision-player@3.0.0 test
-> node --test --test-concurrency=1 tests/*.test.cjs
-
-✔ JSON D1 quota preserves HTTP status, endpoint, Retry-After and Ray ID (6.076823ms)
-✔ plain text and HTML D1 errors are classified without losing HTTP evidence (1.618204ms)
-✔ Workers 1027 request quota is distinguished from D1 row quota (0.638331ms)
-✔ unknown HTML server failure is not invented as a quota error (0.870961ms)
-✔ HTTP 200 HTML, null, array, string, boolean and empty bodies are invalid (3.34945ms)
-✔ HTML 404 keeps compatibility fallback possible without a global cooldown (0.553301ms)
-✔ normal data containing old quota logs is accepted (0.476533ms)
-✔ rate limit honors HTTP-date Retry-After and bounds excessive delays (0.720594ms)
-✔ truncated body keeps status rather than reporting an unknown format error (2.111487ms)
-✔ tests/app.test.cjs (70.871627ms)
-✔ 100 coordinators run 28,800 regular requests in 24 hours, with no legacy polling timer (1550.1592ms)
-✔ coordinator has one in-flight request; multiple urgent events coalesce, reserve never consumes regular budget (6.928777ms)
-✔ quota cooldown survives reload and cold offline boot still has a bounded retry timer (1.560348ms)
-✔ two page instances cannot both acquire the same persistent installation lease (1.005271ms)
-✔ first LEFT and first RIGHT are downloaded before the remainder of LEFT (64.276356ms)
-✔ real lane error reports immediately, then quarantines only that file; right continues (39.065424ms)
-✔ late completion from an obsolete download cannot replace the latest playlist (39.229597ms)
-✔ 100 persistent player identities stay within 80,500 budgeted API attempts/day, including failures and reloads (420.682225ms)
-✔ budget resets on next UTC day and routes do not consume each other’s allowance (3.089947ms)
-✔ chunk SHA-256 matches independent Node hashes at boundaries (35.295432ms)
-✔ truncated and same-length corrupt files fail origin verification (3.885968ms)
-✔ tampered manifest revision and malformed chunk counts are rejected (2.847355ms)
-✔ verified downloads are reused without fetching unchanged bytes (9.35073ms)
-✔ corrupt existing cache is repaired only for affected file (4.970301ms)
-✔ bad origin bytes retry at most twice and never enter committed cache (4.025071ms)
-✔ legacy receipt is local-only, and corruption is detected after restart (5.221198ms)
-✔ new revision never overwrites retained old revision (4.420728ms)
-✔ ready current content bypasses a pending background download (6.382898ms)
-✔ storage quota failure cannot falsely mark file ready (3.102856ms)
-✔ atomic journal retains current bundle on failed update and survives restart (1.840623ms)
-✔ volatile journal storage is refused and explicit empty bundles are valid (1.0955ms)
-✔ legacy WebView SHA-256 fallback agrees with native implementation (89.671026ms)
-✔ left and right use their own waiting artwork during preparation and startup (6.149032ms)
-✔ video preparation replaces a retained playlist image with its lane artwork (3.59175ms)
-✔ pending video stays transparent with an explicit logo poster and no controls (1.681844ms)
-✔ confirmed playback with current data reveals video before the progress poll (2.015547ms)
-✔ play notification without current data cannot reveal the waiting surface (2.12596ms)
-✔ rejected autoplay remains hidden and retains bounded recovery (4.609527ms)
-✔ stale playback callback cannot reveal a replaced video (2.559444ms)
-✔ successful retry is not marked as a 15-second failure (2.782147ms)
-✔ two lanes run and replace videos without more than two decoder allocations (32.314456ms)
-✔ stalled first frame is detected, then bounded retry and quarantine (3.343699ms)
-✔ duplicate callbacks from one attempt count as one failure (3.661434ms)
-✔ actual completion resets historical failures (2.420278ms)
-✔ notice / black mode pause removes decoders and does not count failures (2.338076ms)
-✔ a late old callback cannot fail the new content (1.476291ms)
-✔ metadata duration never skips an unstarted video silently (1.162016ms)
-✔ HTTP success without acknowledgement preserves the outbox (1.356172ms)
-✔ flush acknowledges only sent IDs and preserves concurrently queued records (0.851455ms)
-✔ partial acknowledgements preserve failed entries (0.862526ms)
-✔ network outage does not discard durable events (0.906268ms)
-✔ storage failure is visible and does not erase in-memory events (0.893118ms)
-✔ outbox is bounded and reports dropped records (1.035221ms)
-✔ empty playlist cancels the former video (1.240008ms)
-✔ 72-hour accelerated two-lane transition simulation keeps bounded resources (57305.336952ms)
-✔ progress that stops after playback begins triggers stall recovery (5.336723ms)
-✔ one lane exclusion never prevents the same content in the other lane (2.579192ms)
-✔ hung source resolution reaches a bounded recovery deadline (1.236175ms)
-✔ removed image poster is discarded when playlist becomes empty (1.625811ms)
-✔ short video ending before the polling interval can complete (2.172096ms)
-✔ manual flush and new errors cannot bypass server retry-after (4.176408ms)
-✔ previous navigation branch fails the same redirected-response check (6.020836ms)
-✔ redirected cached HTML is normalized for a manual navigation (3.13678ms)
-✔ first install normalizes redirected document before activation (2.096275ms)
-✔ HTML response drops stale transport compression and length (1.352704ms)
-✔ cache access failure falls back to normalized network HTML (1.788666ms)
-✔ missing cached HTML follows the hosting redirect safely (1.58665ms)
-✔ offline with installed HTML continues using local document (1.591173ms)
-✔ offline without readable cache returns a local recovery document (2.024928ms)
-✔ failed network HTTP status is not promoted to normal Player HTML (1.955641ms)
-✔ activation removes only old application caches and keeps media (1.872266ms)
-✔ cache cleanup failure does not prevent new worker control (0.835787ms)
-✔ API and version lookups remain outside document caching (0.824886ms)
-✔ error, opaque, partial and non-HTML responses cannot become Player documents (1.811372ms)
-✔ failed install cannot activate an incompletely cached application (1.107325ms)
-✔ unexpected cross-origin network document returns recovery HTML (1.065347ms)
-✔ asset cache write failure still returns the successful network response (1.366546ms)
-✔ full v3 boot uses a CORS-simple sync only and starts both lanes with sealed cached files (51.254094ms)
-✔ unchanged regular sync downloads no manifest or media and does not reset lane playback (23.175285ms)
-✔ local health and stage changes cannot create more polling timers (54.703266ms)
-✔ left-only playlist update preserves right bytes and generation except normal completions (27.618959ms)
-✔ reorder reuses all cached files with zero media GETs (30.381547ms)
-✔ replacement downloads only new originals and logically removes old files (32.952402ms)
-✔ valid empty publication excludes content; missing/failed response retains cached playback (17.511606ms)
-✔ explicit delete is removed from live lane, active/previous journal and local schedule (33.174037ms)
-✔ offline replay remains independent and uses zero media downloads after first preparation (228.478778ms)
-✔ same-origin restart restores healthy cached playback even without the server (29.121829ms)
-✔ bad expected digest never commits partial data; unaffected right continues (24.85913ms)
-✔ notice and black mode preserve separate suspension ownership (21.154972ms)
-✔ first fault / exclusion / same-file recovery survive persistence; duplicate attempt not counted twice (1.167881ms)
-✔ repeat failures aggregate without new detailed samples or first-fault events (0.409955ms)
-✔ ten-sample cap persists after acknowledgements; faults remain visible (1.534462ms)
-✔ active fault does not expire with seven-day detailed log retention (0.194356ms)
-✔ identical name, different asset version or lane retain separate error state (0.200825ms)
-✔ tombstones survive old manifest and cannot be erased by an empty or older deletion list (0.237915ms)
-✔ selected right permission stays cached offline, empty or invalid selection is denied (0.190657ms)
-✔ received immediate black expiry is locally honored without a server call (0.197134ms)
-✔ overnight playlist uses start-day semantics (20.496329ms)
-✔ remote refresh executes once, preserves media, and keeps its command id (36.835227ms)
-✔ native screenshot is requested once and is not falsely acknowledged as stored (18.389658ms)
-✔ missing bridge reports unsupported without retrying the same screenshot command forever (17.965622ms)
-ℹ tests 101
-ℹ suites 0
-ℹ pass 101
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 61250.410445
+TAP version 13
+# Subtest: JSON D1 quota preserves HTTP status, endpoint, Retry-After and Ray ID
+ok 1 - JSON D1 quota preserves HTTP status, endpoint, Retry-After and Ray ID
+  ---
+  duration_ms: 4.595032
+  type: 'test'
+  ...
+# Subtest: plain text and HTML D1 errors are classified without losing HTTP evidence
+ok 2 - plain text and HTML D1 errors are classified without losing HTTP evidence
+  ---
+  duration_ms: 1.479423
+  type: 'test'
+  ...
+# Subtest: Workers 1027 request quota is distinguished from D1 row quota
+ok 3 - Workers 1027 request quota is distinguished from D1 row quota
+  ---
+  duration_ms: 0.666297
+  type: 'test'
+  ...
+# Subtest: unknown HTML server failure is not invented as a quota error
+ok 4 - unknown HTML server failure is not invented as a quota error
+  ---
+  duration_ms: 0.720554
+  type: 'test'
+  ...
+# Subtest: HTTP 200 HTML, null, array, string, boolean and empty bodies are invalid
+ok 5 - HTTP 200 HTML, null, array, string, boolean and empty bodies are invalid
+  ---
+  duration_ms: 2.376308
+  type: 'test'
+  ...
+# Subtest: HTML 404 keeps compatibility fallback possible without a global cooldown
+ok 6 - HTML 404 keeps compatibility fallback possible without a global cooldown
+  ---
+  duration_ms: 0.528327
+  type: 'test'
+  ...
+# Subtest: normal data containing old quota logs is accepted
+ok 7 - normal data containing old quota logs is accepted
+  ---
+  duration_ms: 0.548639
+  type: 'test'
+  ...
+# Subtest: rate limit honors HTTP-date Retry-After and bounds excessive delays
+ok 8 - rate limit honors HTTP-date Retry-After and bounds excessive delays
+  ---
+  duration_ms: 0.880579
+  type: 'test'
+  ...
+# Subtest: truncated body keeps status rather than reporting an unknown format error
+ok 9 - truncated body keeps status rather than reporting an unknown format error
+  ---
+  duration_ms: 0.40228
+  type: 'test'
+  ...
+# Subtest: full Player boot loads both playlists, caches media and sends truthful health
+ok 10 - full Player boot loads both playlists, caches media and sends truthful health
+  ---
+  duration_ms: 111.153366
+  type: 'test'
+  ...
+# Subtest: command poll is active and ordinary refresh preserves media cache
+ok 11 - command poll is active and ordinary refresh preserves media cache
+  ---
+  duration_ms: 156.547613
+  type: 'test'
+  ...
+# Subtest: notice and black mode share suspension ownership and resume both sides
+ok 12 - notice and black mode share suspension ownership and resume both sides
+  ---
+  duration_ms: 94.767777
+  type: 'test'
+  ...
+# Subtest: log storage rejection retains logs while playback continues
+ok 13 - log storage rejection retains logs while playback continues
+  ---
+  duration_ms: 269.314287
+  type: 'test'
+  ...
+# Error: offline
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:27:24)
+#     at Object.timedFetch (evalmachine.<anonymous>:16:35)
+#     at fetchJson (app.js:570:30)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_80cd96dc-7bee-44e5-adce-8774996a5058&t=1700000010000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   code: 'LV-API-DOWN',
+#   temporary: true,
+#   retryAfterMs: 65144
+# }
+# Error: offline
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   code: 'LV-API-DOWN',
+#   status: 0,
+#   contentType: '',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_80cd96dc-7bee-44e5-adce-8774996a5058&t=1700000020000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 55144
+# }
+# Error: offline
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   code: 'LV-API-DOWN',
+#   status: 0,
+#   contentType: '',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_80cd96dc-7bee-44e5-adce-8774996a5058&t=1700000030000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 45144
+# }
+# Subtest: offline state sync keeps the last valid media and playlist
+ok 14 - offline state sync keeps the last valid media and playlist
+  ---
+  duration_ms: 451.103424
+  type: 'test'
+  ...
+# Subtest: left-only playlist changes keep right playback generation intact
+ok 15 - left-only playlist changes keep right playback generation intact
+  ---
+  duration_ms: 81.772596
+  type: 'test'
+  ...
+# Error: 파일 구간 1의 SHA-256 불일치
+#     at fail (evalmachine.<anonymous>:5:66)
+#     at flush (evalmachine.<anonymous>:32:140)
+#     at async Object.inspect (evalmachine.<anonymous>:38:11)
+#     at async verify (evalmachine.<anonymous>:21:19)
+#     at async evalmachine.<anonymous>:42:18
+#     at async Object.timedFetch (evalmachine.<anonymous>:17:24)
+#     at async VerifiedFiles.prepare (evalmachine.<anonymous>:37:18)
+#     at async ensureBundleCached (app.js:1116:16)
+#     at async syncConfig (app.js:1482:5)
+#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:94:2) {
+#   code: 'LV-INTEGRITY-MISMATCH'
+# }
+# Subtest: incorrect expected file digest blocks whole candidate and preserves active journal
+ok 16 - incorrect expected file digest blocks whole candidate and preserves active journal
+  ---
+  duration_ms: 82.517184
+  type: 'test'
+  ...
+# Subtest: next schedule prefetch is ready before switch and switch works offline
+ok 17 - next schedule prefetch is ready before switch and switch works offline
+  ---
+  duration_ms: 95.142015
+  type: 'test'
+  ...
+# Subtest: boot selects retained previous bundle when active files are missing
+ok 18 - boot selects retained previous bundle when active files are missing
+  ---
+  duration_ms: 99.290071
+  type: 'test'
+  ...
+# Subtest: overnight player selection agrees with start-day semantics
+ok 19 - overnight player selection agrees with start-day semantics
+  ---
+  duration_ms: 103.59364
+  type: 'test'
+  ...
+# Error: offline
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:27:24)
+#     at Object.timedFetch (evalmachine.<anonymous>:16:35)
+#     at fetchJson (app.js:570:30)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1846:47 {
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_d4091310-50e8-47c8-bdf9-8d0e7f29874d&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state',
+#   code: 'LV-API-DOWN',
+#   temporary: true,
+#   retryAfterMs: 66345
+# }
+# Subtest: new app context restores a committed bundle offline after restart
+ok 20 - new app context restores a committed bundle offline after restart
+  ---
+  duration_ms: 170.325493
+  type: 'test'
+  ...
+# Error: 재생목록 적용 기록 저장 실패: quota injected
+#     at error (evalmachine.<anonymous>:3:43)
+#     at Journal.commit (evalmachine.<anonymous>:71:18)
+#     at commitPrepared (app.js:265:16)
+#     at syncConfig (app.js:1486:5)
+#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:124:142)
+#     at async Test.run (node:internal/test_runner/test:1389:7)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+#   code: 'LV-STORAGE-WRITE'
+# }
+# Subtest: journal quota refusal leaves both live lanes and last saved bundle untouched
+ok 21 - journal quota refusal leaves both live lanes and last saved bundle untouched
+  ---
+  duration_ms: 88.565571
+  type: 'test'
+  ...
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_0e52285f-9399-4e8d-bc0b-39d1c429b0fc&t=1700000010000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-status',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 940977
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_0e52285f-9399-4e8d-bc0b-39d1c429b0fc&t=1700000020000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-status',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 930977
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1832:48
+#     at runExclusive (app.js:333:21)
+#     at app.js:1831:80
+#     at Object.repeat [as fn] (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:20:54)
+#     at Object.tick (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/harness.cjs:39:224) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_0e52285f-9399-4e8d-bc0b-39d1c429b0fc&t=1700000030000&reason=player-state-interval',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-status',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 920977
+# }
+# Subtest: quota circuit persists, coalesces API retries, and leaves both cached lanes running
+ok 22 - quota circuit persists, coalesces API retries, and leaves both cached lanes running
+  ---
+  duration_ms: 455.604731
+  type: 'test'
+  ...
+# Subtest: rapid health triggers cannot produce a request every ten seconds
+ok 23 - rapid health triggers cannot produce a request every ten seconds
+  ---
+  duration_ms: 334.661143
+  type: 'test'
+  ...
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at Object.read (evalmachine.<anonymous>:39:35)
+#     at async Object.timedFetch (evalmachine.<anonymous>:17:24)
+#     at async fetchJson (app.js:570:14)
+#     at async fetchPlayerState (app.js:638:12)
+#     at async syncConfig (app.js:1426:18) {
+#   status: 503,
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state',
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   code: 'LV-D1-QUOTA',
+#   temporary: true,
+#   retryAfterMs: 916465
+# }
+# Subtest: production free100 profile clamps old URLs and combines control requests
+ok 24 - production free100 profile clamps old URLs and combines control requests
+  ---
+  duration_ms: 98.112551
+  type: 'test'
+  ...
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS D1 일일 사용 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:158:31) {
+#   code: 'LV-D1-QUOTA',
+#   status: 503,
+#   contentType: 'text/html',
+#   rayId: 'qa-quota',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_aa4ebd8e-df06-4ac9-831a-070fc2bdb7e2&t=1700000003000&reason=manual-during-quota',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 913465
+# }
+# Error: CMS 응답 형식 오류 (HTTP 503)
+#     at Object.read (evalmachine.<anonymous>:39:35)
+#     at async Object.timedFetch (evalmachine.<anonymous>:17:24)
+#     at async fetchJson (app.js:570:14)
+#     at async fetchPlayerState (app.js:638:12)
+#     at async syncConfig (app.js:1426:18) {
+#   status: 503,
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_506a1a45-45d7-4419-80ce-7e68796ca65e&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state',
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   code: 'LV-API-INVALID',
+#   temporary: true,
+#   retryAfterMs: 61080
+# }
+# Subtest: cold start with HTML quota shows both waiting images and a single shared cooldown
+ok 25 - cold start with HTML quota shows both waiting images and a single shared cooldown
+  ---
+  duration_ms: 406.44559
+  type: 'test'
+  ...
+# Subtest: cold start with non-JSON 503 reconnects automatically after cooldown without reload
+ok 26 - cold start with non-JSON 503 reconnects automatically after cooldown without reload
+  ---
+  duration_ms: 112.992432
+  type: 'test'
+  ...
+# Error: CMS 서버 요청 한도 복구 대기
+#     at Object.read (evalmachine.<anonymous>:39:35)
+#     at async Object.timedFetch (evalmachine.<anonymous>:17:24)
+#     at async fetchJson (app.js:570:14)
+#     at async fetchPlayerState (app.js:638:12)
+#     at async syncConfig (app.js:1426:18)
+#     at async TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:178:2)
+#     at async Test.run (node:internal/test_runner/test:1389:7)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+#   status: 429,
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_e64b395b-5d41-4449-953e-160012e773fe&t=1700000006000&reason=worker-quota',
+#   endpoint: '/api/player-state',
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   code: 'LV-WORKER-QUOTA',
+#   temporary: true,
+#   retryAfterMs: 958708
+# }
+# Error: CMS 서버 요청 한도 복구 대기
+#     at createPlayerError (app.js:352:17)
+#     at pausedCmsError (app.js:505:17)
+#     at fetchJson (app.js:565:47)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1846:47 {
+#   code: 'LV-WORKER-QUOTA',
+#   status: 429,
+#   contentType: 'text/plain;charset=UTF-8',
+#   rayId: '',
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_e64b395b-5d41-4449-953e-160012e773fe&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state',
+#   blockedByEndpoint: '/api/player-state',
+#   noRequest: true,
+#   temporary: true,
+#   retryAfterMs: 964708
+# }
+# Subtest: Workers quota cooldown survives reload and offline cached playback is retained
+ok 27 - Workers quota cooldown survives reload and offline cached playback is retained
+  ---
+  duration_ms: 162.131861
+  type: 'test'
+  ...
+# Error: 무료 운영 API 일일 예산 대기
+#     at Budget.take (evalmachine.<anonymous>:12:33)
+#     at fetchJson (app.js:569:21)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1846:47 {
+#   code: 'LV-REQUEST-BUDGET',
+#   retryAfterMs: 6400000,
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_b581db56-d799-4303-bbf8-603dc947c957&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state'
+# }
+# Subtest: valid unchanged playlist clears an earlier overlay without resetting either lane
+ok 28 - valid unchanged playlist clears an earlier overlay without resetting either lane
+  ---
+  duration_ms: 77.852456
+  type: 'test'
+  ...
+# Error: 무료 운영 API 일일 예산 대기
+#     at Budget.take (evalmachine.<anonymous>:12:33)
+#     at fetchJson (app.js:569:21)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at evalmachine.<anonymous>:1:1
+#     at Script.runInContext (node:vm:149:12)
+#     at Object.runInContext (node:vm:301:6)
+#     at Object.run (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:46:22)
+#     at TestContext.<anonymous> (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:204:10)
+#     at async Test.run (node:internal/test_runner/test:1389:7) {
+#   code: 'LV-REQUEST-BUDGET',
+#   retryAfterMs: 6397000,
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_b581db56-d799-4303-bbf8-603dc947c957&t=1700000003000&reason=retry-budget',
+#   endpoint: '/api/player-state'
+# }
+# Error: 재생 가능한 playlist가 없습니다.
+#     at createPlayerError (app.js:352:17)
+#     at syncConfig (app.js:1441:13) {
+#   code: 'LV-PLAYLIST-EMPTY'
+# }
+# Subtest: state budget exhaustion at first boot shows waiting art and does not reset the budget
+ok 29 - state budget exhaustion at first boot shows waiting art and does not reset the budget
+  ---
+  duration_ms: 50.503058
+  type: 'test'
+  ...
+# Error: offline
+#     at ctx.fetch (/workspace/scratch/0318c3387a3c/release_hotfix/LocalVision_Player_v1.9.6_API_RECOVERY/tests/app.test.cjs:27:24)
+#     at Object.timedFetch (evalmachine.<anonymous>:16:35)
+#     at fetchJson (app.js:570:30)
+#     at fetchPlayerState (app.js:638:18)
+#     at syncConfig (app.js:1426:24)
+#     at app.js:1846:47 {
+#   url: 'https://cms.test/api/player-state?store=qa&deviceId=web_774c5de9-9731-4e69-81a2-6fd073677c5d&t=1700000000000&reason=startup-immediate',
+#   endpoint: '/api/player-state',
+#   code: 'LV-API-DOWN',
+#   temporary: true,
+#   retryAfterMs: 61395
+# }
+# Subtest: missing playlist remains an actionable configuration error
+ok 30 - missing playlist remains an actionable configuration error
+  ---
+  duration_ms: 34.070386
+  type: 'test'
+  ...
+# Subtest: cold offline boot uses waiting art and later resumes on the recovery timer
+ok 31 - cold offline boot uses waiting art and later resumes on the recovery timer
+  ---
+  duration_ms: 136.678139
+  type: 'test'
+  ...
+# Subtest: HTML 404 player-state still falls back to legacy player-config
+ok 32 - HTML 404 player-state still falls back to legacy player-config
+  ---
+  duration_ms: 95.154381
+  type: 'test'
+  ...
+# Subtest: 100 persistent player identities stay within 80,500 budgeted API attempts/day, including failures and reloads
+ok 33 - 100 persistent player identities stay within 80,500 budgeted API attempts/day, including failures and reloads
+  ---
+  duration_ms: 294.94379
+  type: 'test'
+  ...
+# Subtest: budget resets on next UTC day and routes do not consume each other’s allowance
+ok 34 - budget resets on next UTC day and routes do not consume each other’s allowance
+  ---
+  duration_ms: 1.53987
+  type: 'test'
+  ...
+# Subtest: chunk SHA-256 matches independent Node hashes at boundaries
+ok 35 - chunk SHA-256 matches independent Node hashes at boundaries
+  ---
+  duration_ms: 32.394941
+  type: 'test'
+  ...
+# Subtest: truncated and same-length corrupt files fail origin verification
+ok 36 - truncated and same-length corrupt files fail origin verification
+  ---
+  duration_ms: 3.82905
+  type: 'test'
+  ...
+# Subtest: tampered manifest revision and malformed chunk counts are rejected
+ok 37 - tampered manifest revision and malformed chunk counts are rejected
+  ---
+  duration_ms: 3.190611
+  type: 'test'
+  ...
+# Subtest: verified downloads are reused without fetching unchanged bytes
+ok 38 - verified downloads are reused without fetching unchanged bytes
+  ---
+  duration_ms: 9.396671
+  type: 'test'
+  ...
+# Subtest: corrupt existing cache is repaired only for affected file
+ok 39 - corrupt existing cache is repaired only for affected file
+  ---
+  duration_ms: 4.697943
+  type: 'test'
+  ...
+# Subtest: bad origin bytes retry at most twice and never enter committed cache
+ok 40 - bad origin bytes retry at most twice and never enter committed cache
+  ---
+  duration_ms: 2.890385
+  type: 'test'
+  ...
+# Subtest: legacy receipt is local-only, and corruption is detected after restart
+ok 41 - legacy receipt is local-only, and corruption is detected after restart
+  ---
+  duration_ms: 4.747063
+  type: 'test'
+  ...
+# Subtest: new revision never overwrites retained old revision
+ok 42 - new revision never overwrites retained old revision
+  ---
+  duration_ms: 5.49544
+  type: 'test'
+  ...
+# Subtest: ready current content bypasses a pending background download
+ok 43 - ready current content bypasses a pending background download
+  ---
+  duration_ms: 3.379593
+  type: 'test'
+  ...
+# Subtest: storage quota failure cannot falsely mark file ready
+ok 44 - storage quota failure cannot falsely mark file ready
+  ---
+  duration_ms: 7.048312
+  type: 'test'
+  ...
+# Subtest: atomic journal retains current bundle on failed update and survives restart
+ok 45 - atomic journal retains current bundle on failed update and survives restart
+  ---
+  duration_ms: 1.350894
+  type: 'test'
+  ...
+# Subtest: volatile journal storage and empty bundles are refused
+ok 46 - volatile journal storage and empty bundles are refused
+  ---
+  duration_ms: 1.204572
+  type: 'test'
+  ...
+# Subtest: legacy WebView SHA-256 fallback agrees with native implementation
+ok 47 - legacy WebView SHA-256 fallback agrees with native implementation
+  ---
+  duration_ms: 93.895389
+  type: 'test'
+  ...
+# Subtest: left and right use their own waiting artwork during preparation and startup
+ok 48 - left and right use their own waiting artwork during preparation and startup
+  ---
+  duration_ms: 8.08115
+  type: 'test'
+  ...
+# Subtest: video preparation replaces a retained playlist image with its lane artwork
+ok 49 - video preparation replaces a retained playlist image with its lane artwork
+  ---
+  duration_ms: 3.205991
+  type: 'test'
+  ...
+# Subtest: pending video stays transparent with an explicit logo poster and no controls
+ok 50 - pending video stays transparent with an explicit logo poster and no controls
+  ---
+  duration_ms: 1.803279
+  type: 'test'
+  ...
+# Subtest: confirmed playback with current data reveals video before the progress poll
+ok 51 - confirmed playback with current data reveals video before the progress poll
+  ---
+  duration_ms: 1.67952
+  type: 'test'
+  ...
+# Subtest: play notification without current data cannot reveal the waiting surface
+ok 52 - play notification without current data cannot reveal the waiting surface
+  ---
+  duration_ms: 1.719061
+  type: 'test'
+  ...
+# Subtest: rejected autoplay remains hidden and retains bounded recovery
+ok 53 - rejected autoplay remains hidden and retains bounded recovery
+  ---
+  duration_ms: 6.367392
+  type: 'test'
+  ...
+# Subtest: stale playback callback cannot reveal a replaced video
+ok 54 - stale playback callback cannot reveal a replaced video
+  ---
+  duration_ms: 1.766585
+  type: 'test'
+  ...
+# Subtest: successful retry is not marked as a 15-second failure
+ok 55 - successful retry is not marked as a 15-second failure
+  ---
+  duration_ms: 2.8079
+  type: 'test'
+  ...
+# Subtest: two lanes run and replace videos without more than two decoder allocations
+ok 56 - two lanes run and replace videos without more than two decoder allocations
+  ---
+  duration_ms: 41.27433
+  type: 'test'
+  ...
+# Subtest: stalled first frame is detected, then bounded retry and quarantine
+ok 57 - stalled first frame is detected, then bounded retry and quarantine
+  ---
+  duration_ms: 3.560421
+  type: 'test'
+  ...
+# Subtest: duplicate callbacks from one attempt count as one failure
+ok 58 - duplicate callbacks from one attempt count as one failure
+  ---
+  duration_ms: 3.567849
+  type: 'test'
+  ...
+# Subtest: actual completion resets historical failures
+ok 59 - actual completion resets historical failures
+  ---
+  duration_ms: 2.415135
+  type: 'test'
+  ...
+# Subtest: notice / black mode pause removes decoders and does not count failures
+ok 60 - notice / black mode pause removes decoders and does not count failures
+  ---
+  duration_ms: 2.53578
+  type: 'test'
+  ...
+# Subtest: a late old callback cannot fail the new content
+ok 61 - a late old callback cannot fail the new content
+  ---
+  duration_ms: 1.555504
+  type: 'test'
+  ...
+# Subtest: metadata duration never skips an unstarted video silently
+ok 62 - metadata duration never skips an unstarted video silently
+  ---
+  duration_ms: 1.320914
+  type: 'test'
+  ...
+# Subtest: HTTP success without acknowledgement preserves the outbox
+ok 63 - HTTP success without acknowledgement preserves the outbox
+  ---
+  duration_ms: 1.270671
+  type: 'test'
+  ...
+# Subtest: flush acknowledges only sent IDs and preserves concurrently queued records
+ok 64 - flush acknowledges only sent IDs and preserves concurrently queued records
+  ---
+  duration_ms: 0.906804
+  type: 'test'
+  ...
+# Subtest: partial acknowledgements preserve failed entries
+ok 65 - partial acknowledgements preserve failed entries
+  ---
+  duration_ms: 0.820162
+  type: 'test'
+  ...
+# Subtest: network outage does not discard durable events
+ok 66 - network outage does not discard durable events
+  ---
+  duration_ms: 1.563085
+  type: 'test'
+  ...
+# Subtest: storage failure is visible and does not erase in-memory events
+ok 67 - storage failure is visible and does not erase in-memory events
+  ---
+  duration_ms: 1.022244
+  type: 'test'
+  ...
+# Subtest: outbox is bounded and reports dropped records
+ok 68 - outbox is bounded and reports dropped records
+  ---
+  duration_ms: 1.112758
+  type: 'test'
+  ...
+# Subtest: empty playlist cancels the former video
+ok 69 - empty playlist cancels the former video
+  ---
+  duration_ms: 1.352784
+  type: 'test'
+  ...
+# Subtest: 72-hour accelerated two-lane transition simulation keeps bounded resources
+ok 70 - 72-hour accelerated two-lane transition simulation keeps bounded resources
+  ---
+  duration_ms: 45501.981889
+  type: 'test'
+  ...
+# Subtest: progress that stops after playback begins triggers stall recovery
+ok 71 - progress that stops after playback begins triggers stall recovery
+  ---
+  duration_ms: 4.504051
+  type: 'test'
+  ...
+# Subtest: one lane exclusion never prevents the same content in the other lane
+ok 72 - one lane exclusion never prevents the same content in the other lane
+  ---
+  duration_ms: 2.549895
+  type: 'test'
+  ...
+# Subtest: hung source resolution reaches a bounded recovery deadline
+ok 73 - hung source resolution reaches a bounded recovery deadline
+  ---
+  duration_ms: 1.483552
+  type: 'test'
+  ...
+# Subtest: removed image poster is discarded when playlist becomes empty
+ok 74 - removed image poster is discarded when playlist becomes empty
+  ---
+  duration_ms: 1.221074
+  type: 'test'
+  ...
+# Subtest: short video ending before the polling interval can complete
+ok 75 - short video ending before the polling interval can complete
+  ---
+  duration_ms: 1.696499
+  type: 'test'
+  ...
+# Subtest: manual flush and new errors cannot bypass server retry-after
+ok 76 - manual flush and new errors cannot bypass server retry-after
+  ---
+  duration_ms: 2.822718
+  type: 'test'
+  ...
+# Subtest: previous navigation branch fails the same redirected-response check
+ok 77 - previous navigation branch fails the same redirected-response check
+  ---
+  duration_ms: 5.347541
+  type: 'test'
+  ...
+# Subtest: redirected cached HTML is normalized for a manual navigation
+ok 78 - redirected cached HTML is normalized for a manual navigation
+  ---
+  duration_ms: 3.241486
+  type: 'test'
+  ...
+# Subtest: first install normalizes redirected document before activation
+ok 79 - first install normalizes redirected document before activation
+  ---
+  duration_ms: 1.901101
+  type: 'test'
+  ...
+# Subtest: HTML response drops stale transport compression and length
+ok 80 - HTML response drops stale transport compression and length
+  ---
+  duration_ms: 1.315177
+  type: 'test'
+  ...
+# Subtest: cache access failure falls back to normalized network HTML
+ok 81 - cache access failure falls back to normalized network HTML
+  ---
+  duration_ms: 2.04386
+  type: 'test'
+  ...
+# Subtest: missing cached HTML follows the hosting redirect safely
+ok 82 - missing cached HTML follows the hosting redirect safely
+  ---
+  duration_ms: 4.770012
+  type: 'test'
+  ...
+# Subtest: offline with installed HTML continues using local document
+ok 83 - offline with installed HTML continues using local document
+  ---
+  duration_ms: 1.353551
+  type: 'test'
+  ...
+# Subtest: offline without readable cache returns a local recovery document
+ok 84 - offline without readable cache returns a local recovery document
+  ---
+  duration_ms: 3.871152
+  type: 'test'
+  ...
+# Subtest: failed network HTTP status is not promoted to normal Player HTML
+ok 85 - failed network HTTP status is not promoted to normal Player HTML
+  ---
+  duration_ms: 2.093482
+  type: 'test'
+  ...
+# Subtest: activation removes only old application caches and keeps media
+ok 86 - activation removes only old application caches and keeps media
+  ---
+  duration_ms: 2.157637
+  type: 'test'
+  ...
+# Subtest: cache cleanup failure does not prevent new worker control
+ok 87 - cache cleanup failure does not prevent new worker control
+  ---
+  duration_ms: 1.167886
+  type: 'test'
+  ...
+# Subtest: API and version lookups remain outside document caching
+ok 88 - API and version lookups remain outside document caching
+  ---
+  duration_ms: 1.327175
+  type: 'test'
+  ...
+# Subtest: error, opaque, partial and non-HTML responses cannot become Player documents
+ok 89 - error, opaque, partial and non-HTML responses cannot become Player documents
+  ---
+  duration_ms: 2.015604
+  type: 'test'
+  ...
+# Subtest: failed install cannot activate an incompletely cached application
+ok 90 - failed install cannot activate an incompletely cached application
+  ---
+  duration_ms: 1.307417
+  type: 'test'
+  ...
+# Subtest: unexpected cross-origin network document returns recovery HTML
+ok 91 - unexpected cross-origin network document returns recovery HTML
+  ---
+  duration_ms: 1.085222
+  type: 'test'
+  ...
+# Subtest: asset cache write failure still returns the successful network response
+ok 92 - asset cache write failure still returns the successful network response
+  ---
+  duration_ms: 1.552509
+  type: 'test'
+  ...
+1..92
+# tests 92
+# suites 0
+# pass 92
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 50632.076118

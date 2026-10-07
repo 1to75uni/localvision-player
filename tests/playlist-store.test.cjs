@@ -60,8 +60,8 @@ test('atomic journal retains current bundle on failed update and survives restar
  j.commit(bundle('old'));fail=true;assert.throws(()=>j.commit(bundle('new')),/저장 실패/);assert.equal(j.read().active.left[0].id,'old');fail=false;j.commit(bundle('new'));
  const restarted=new h.ctx.LVPlaylistStore.Journal(storage,'j');assert.equal(restarted.read().active.left[0].id,'new');assert.equal(restarted.read().previous.left[0].id,'old');
 });
-test('volatile journal storage is refused and explicit empty bundles are valid',()=>{
- const h=setup(),j=new h.ctx.LVPlaylistStore.Journal({volatile:true},'j');assert.throws(()=>j.commit({left:[{}],right:[]}),/저장소/);assert.throws(()=>j.commit({left:[],right:[]}),/저장소/);const durable=new h.ctx.LVPlaylistStore.Journal({getItem:k=>h.storage.get(k),setItem:(k,v)=>h.storage.set(k,v)},'empty');assert.doesNotThrow(()=>durable.commit({left:[],right:[]}));
+test('volatile journal storage and empty bundles are refused',()=>{
+ const h=setup(),j=new h.ctx.LVPlaylistStore.Journal({volatile:true},'j');assert.throws(()=>j.commit({left:[{}],right:[]}),/저장소/);assert.throws(()=>j.commit({left:[],right:[]}),/재생목록/);
 });
 test('legacy WebView SHA-256 fallback agrees with native implementation',async()=>{
  const h=setup();h.ctx.crypto={};for(const n of [0,1,55,56,63,64,65,1000,1048576]){const bytes=crypto.randomBytes(n);assert.equal(await h.ctx.LVIntegrity.digest(bytes),crypto.createHash('sha256').update(bytes).digest('hex'));}
