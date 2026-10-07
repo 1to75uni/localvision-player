@@ -1,0 +1,11 @@
+{
+  "project": "player",
+  "release": "3.0.0",
+  "checkedAt": "2026-10-07T02:49:43.496Z",
+  "localStaticAssetReferences": "passed",
+  "serviceWorkerAssets": "passed",
+  "jsonSyntax": "passed",
+  "appModified": false,
+  "cloudflareLiveValidated": false,
+  "tvValidated": false
+}

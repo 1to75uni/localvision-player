@@ -1,9 +1,10 @@
 {
   "name": "localvision-player",
-  "version": "1.9.6",
+  "version": "3.0.0",
   "private": true,
   "description": "Independent playback recovery and durable playback diagnostics",
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.cjs"
-  }
+  },
+  "engines": {"node": ">=24"}
 }

@@ -1,12 +1,1 @@
-{
-  "build": "v1.9.6-api-recovery",
-  "version": "1.9.6",
-  "updatedAt": "2026-09-11",
-  "highlights": [
-    "Non-JSON API error classification with preserved HTTP evidence",
-    "Independent D1 and Workers quota cooldowns persisted across reloads",
-    "Cached playback or per-lane waiting artwork during CMS outages",
-    "Automatic reconnection within unchanged FREE 100 API budgets"
-  ],
-  "notes": "Pair with CMS 2.1.2. 92 automated Player regressions pass. Does not remove platform quotas. Physical TV/APK and account-wide free operation are not certified."
-}
+{"build":"v3.0.0","release":"3.0.0","minimumRollback":"3.0.0"}

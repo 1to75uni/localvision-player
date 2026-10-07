@@ -1,0 +1,36 @@
+[
+  {
+    "side": "left",
+    "size": 6600,
+    "profile": {
+      "validated": true,
+      "codec": "avc1",
+      "profile": 66,
+      "level": 40,
+      "width": 1344,
+      "height": 1080,
+      "duration": 2,
+      "fps": 25,
+      "variableFrameRate": false,
+      "warnings": []
+    },
+    "revision": "0e8709cc4c903147838ceafeee8514731db7565fb7f1120d3bfdfa7c591685a8"
+  },
+  {
+    "side": "right",
+    "size": 4140,
+    "profile": {
+      "validated": true,
+      "codec": "avc1",
+      "profile": 66,
+      "level": 31,
+      "width": 576,
+      "height": 1080,
+      "duration": 2,
+      "fps": 25,
+      "variableFrameRate": false,
+      "warnings": []
+    },
+    "revision": "75fcf58a20595de55c2fe59bc073cdb413eadd3864b7872df5e967499c665e5c"
+  }
+]

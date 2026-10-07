@@ -95,12 +95,12 @@
       this.controller = null; this.releaseGate = null; this.attemptId = ''; this.terminal = false; this.rvfc = null;
       this.poster = null;
     }
-    key(item) { return `${item?.id || item?.url || ''}|${item?.url || ''}|${item?.integrity?.revision || item?.revision || item?.updatedAt || ''}`; }
+    key(item) { return `${item?.id || item?.url || ''}|${item?.url || ''}|${item?.assetVersion || item?.integrity?.revision || item?.revision || item?.r2Key || item?.url || ''}`; }
     valid(token) { return token === this.generation && !this.terminal && !this.pauses.size; }
     later(fn, ms) { const id = setTimeout(() => {this.timers.delete(id); fn();}, ms); this.timers.add(id); return id; }
     cancelTimer(id) { clearTimeout(id); this.timers.delete(id); }
     event(code, message, level = 'info', extra = {}) {
-      this.o.onEvent?.(code, message, {side: this.side, itemId: this.current?.id || '', fileName: this.current?.fileName || '', title: this.current?.title || '', sourceUrl: this.current?.url || '', attemptId: this.attemptId, phase: this.phase, currentTime: this.currentTime, duration: this.duration, playedMs: Math.round(this.playedMs), ...extra}, level);
+      this.o.onEvent?.(code, message, {side: this.side, itemId: this.current?.id || '', fileName: this.current?.fileName || '', title: this.current?.title || '', sourceUrl: this.current?.url || '', assetVersion:this.current?.assetVersion || this.current?.integrity?.revision || this.current?.r2Key || this.current?.url || '', attemptId: this.attemptId, phase: this.phase, currentTime: this.currentTime, duration: this.duration, playedMs: Math.round(this.playedMs), ...extra}, level);
     }
     change(phase, reason = '', important = false) {
       const category = ['playing','image'].includes(phase) ? 'healthy' : ['retrying','quarantined','fallback'].includes(phase) ? 'problem' : ['paused','empty','stopped'].includes(phase) ? phase : '';
@@ -287,7 +287,7 @@
       if (!this.valid(token)) return;
       this.terminal = true;
       const type = classify(error, phase), now = Date.now(), key = this.key(this.current);
-      const old = this.failures.get(key), count = old && now - old.at < 30 * 60000 ? old.count + 1 : 1;
+      const old = this.failures.get(key), count = old ? old.count + 1 : 1;
       const debug = {name:error?.name || '', mediaCode:error?.mediaCode || this.element?.error?.code || 0, readyState:this.element?.readyState, networkState:this.element?.networkState, paused:this.element?.paused, frameCount:this.frameCount};
       this.lastError = {code:type.code, message:type.label, at:new Date().toISOString(), count};
       this.failures.set(key,{count,at:now});
@@ -297,9 +297,10 @@
         this.change('retrying', `${type.label} · 재시도 대기`, true);
         this.later(() => this.play(this.current), type.kind === 'policy' ? 3000 : 1500);
       } else {
-        const retryAt = now + Math.min(15 * 60000, 60000 * 2 ** Math.min(4, count - 2));
+        const retryAt = now + [60000,300000,900000,3600000][Math.min(3,count-2)];
+        const newlyExcluded=!this.exclusions.has(key);
         this.exclusions.set(key,{itemId:this.current?.id || '',fileName:this.current?.fileName || '',title:this.current?.title || '',url:this.current?.url || '',side:this.side,code:type.code,reason:type.label,failCount:count,retryAt,excludedAt:now});
-        this.event('LV-MEDIA-SESSION-SKIP', '반복 실패로 콘텐츠 일시 제외 · 자동 재검사 예정', 'warning', {failCount:count,retryAt:new Date(retryAt).toISOString(),reasonCode:type.code});
+        if(newlyExcluded)this.event('LV-MEDIA-SESSION-SKIP', '반복 실패로 콘텐츠 일시 제외 · 자동 재검사 예정', 'warning', {failCount:count,retryAt:new Date(retryAt).toISOString(),reasonCode:type.code});
         this.change('quarantined', type.label, true); this.later(() => this.next(), 1500);
       }
     }

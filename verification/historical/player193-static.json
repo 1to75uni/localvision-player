@@ -1,0 +1,22 @@
+{
+  "syntax_passed": 10,
+  "images": {
+    "waiting-left.jpg": {
+      "size": [
+        1399,
+        1124
+      ],
+      "identical_to_upload": true,
+      "sha256": "a84b10c1913eb025114063606cacc19f7a19cb9280dd6c712e18466763bafb70"
+    },
+    "waiting-right.jpg": {
+      "size": [
+        819,
+        1536
+      ],
+      "identical_to_upload": true,
+      "sha256": "e7a23ba5d96ecd81ad34bd34f3e2ce4a284880fbc1c59e8190d1492904bba015"
+    }
+  },
+  "html_assets_and_version": "passed"
+}
